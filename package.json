@@ -1,0 +1,31 @@
+{
+	"name": "kasca-esque",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "tsx server.ts",
+		"start": "tsx server.ts",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+	},
+	"dependencies": {
+		"express": "^4.21.2",
+		"ws": "^8.18.0"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "^5.2.9",
+		"@sveltejs/kit": "^2.47.1",
+		"@sveltejs/vite-plugin-svelte": "^6.2.1",
+		"@types/express": "^5.0.0",
+		"@types/ws": "^8.5.13",
+		"svelte": "^5.41.0",
+		"svelte-check": "^4.3.3",
+		"tsx": "^4.19.2",
+		"typescript": "^5.9.3",
+		"vite": "^7.1.10"
+	}
+}

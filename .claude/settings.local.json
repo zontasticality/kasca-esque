@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create svelte@latest app)",
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(npm start)",
+      "Bash(curl:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
