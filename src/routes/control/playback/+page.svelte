@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import RecordingTextState from "$lib/components/RecordingTextState.svelte";
 
 	interface Recording {
 		filename: string;
@@ -17,30 +18,25 @@
 		deleted: boolean;
 	}
 
-	interface KeystrokeDisplay {
-		key: string;
-		timestamp: number;
-		opacity: number;
-	}
-
 	let recordings = $state<Recording[]>([]);
 	let selectedRecording = $state<Recording | null>(null);
 	let audioElement = $state<HTMLAudioElement | null>(null);
 	let isPlaying = $state(false);
 	let currentTime = $state(0);
 	let duration = $state(0);
-	let displayedKeystrokes = $state<KeystrokeDisplay[]>([]);
-	let animationId: number | null = null;
 	let lastLoadedRecordingId: string | null = null;
+
+	const seekMax = $derived<number>(
+		duration > 0
+			? duration
+			: selectedRecording
+			?
+				getRecordingDurationSeconds(selectedRecording)
+			: 0
+	);
 
 	onMount(() => {
 		loadRecordings();
-
-		return () => {
-			if (animationId !== null) {
-				cancelAnimationFrame(animationId);
-			}
-		};
 	});
 
 	function stopPlayback(clearSource = false) {
@@ -54,7 +50,6 @@
 		}
 		isPlaying = false;
 		currentTime = 0;
-		displayedKeystrokes = [];
 		lastLoadedRecordingId = null;
 	}
 
@@ -121,41 +116,26 @@
 			audioElement.pause();
 		} else {
 			audioElement.play();
-			updateKeystrokeDisplay();
 		}
 		isPlaying = !isPlaying;
-	}
-
-	function updateKeystrokeDisplay() {
-		if (!selectedRecording || !isPlaying) return;
-
-		animationId = requestAnimationFrame(updateKeystrokeDisplay);
-
-		const playbackTimestamp =
-			selectedRecording.start_timestamp + currentTime * 1000;
-
-		// Find keystrokes that should be visible
-		const relevantKeystrokes = selectedRecording.keystrokes.filter(
-			(ks) =>
-				ks.event_type === "keydown" &&
-				ks.timestamp <= playbackTimestamp,
-		);
-
-		// Update displayed keystrokes with fading effect
-		displayedKeystrokes = relevantKeystrokes.slice(-20).map((ks) => {
-			const age = (playbackTimestamp - ks.timestamp) / 1000; // age in seconds
-			const opacity = Math.max(0, 1 - age / 3); // fade over 3 seconds
-			return {
-				key: ks.key,
-				timestamp: ks.timestamp,
-				opacity,
-			};
-		});
 	}
 
 	function handleTimeUpdate() {
 		if (audioElement) {
 			currentTime = audioElement.currentTime;
+		}
+	}
+
+	function handleSeekInput(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const newTime = Number(target.value);
+		if (!Number.isFinite(newTime)) {
+			return;
+		}
+
+		currentTime = newTime;
+		if (audioElement) {
+			audioElement.currentTime = newTime;
 		}
 	}
 
@@ -172,7 +152,6 @@
 
 	function handleEnded() {
 		isPlaying = false;
-		displayedKeystrokes = [];
 	}
 
 	async function toggleRecordingDeletion(recording: Recording) {
@@ -382,6 +361,16 @@
 						>
 							{isPlaying ? "⏸ Pause" : "▶ Play"}
 						</button>
+						<input
+							type="range"
+							class="seekbar"
+							min="0"
+							max={seekMax || 0}
+							step="0.01"
+							value={Math.min(currentTime, seekMax || 0)}
+							oninput={handleSeekInput}
+							disabled={seekMax === 0}
+						/>
 						<div class="time-display">
 							{formatDuration(currentTime)} / {formatDuration(
 								duration,
@@ -389,21 +378,10 @@
 						</div>
 					</div>
 
-					<div class="keystroke-display">
-						<h3>Keystrokes</h3>
-						<div class="keystroke-list">
-							{#each displayedKeystrokes as keystroke (keystroke.timestamp)}
-								<span
-									class="keystroke-item"
-									style="opacity: {keystroke.opacity}"
-								>
-									{keystroke.key === " "
-										? "␣"
-										: keystroke.key}
-								</span>
-							{/each}
-						</div>
-					</div>
+					<RecordingTextState
+						recording={selectedRecording}
+						{currentTime}
+					/>
 				</div>
 			{:else}
 				<div class="no-selection">
@@ -672,44 +650,42 @@
 		border-color: #00ff00;
 	}
 
+	.seekbar {
+		flex: 1;
+		appearance: none;
+		height: 0.35rem;
+		background: #001500;
+		border-radius: 0.25rem;
+		outline: none;
+	}
+
+	.seekbar:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.seekbar::-webkit-slider-thumb {
+		appearance: none;
+		width: 0.85rem;
+		height: 0.85rem;
+		border-radius: 50%;
+		background: #00ff99;
+		cursor: pointer;
+	}
+
+	.seekbar::-moz-range-thumb {
+		width: 0.85rem;
+		height: 0.85rem;
+		border-radius: 50%;
+		background: #00ff99;
+		border: none;
+		cursor: pointer;
+	}
+
 
 	.time-display {
 		color: #00aa00;
 		font-size: 0.875rem;
-	}
-
-	.keystroke-display {
-		flex: 1;
-		background: #000000;
-		border: 1px solid #003300;
-		border-radius: 0.25rem;
-		padding: 1.5rem;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.keystroke-display h3 {
-		margin: 0 0 1rem 0;
-		font-size: 1rem;
-		font-weight: normal;
-	}
-
-	.keystroke-list {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		overflow-y: auto;
-	}
-
-	.keystroke-item {
-		padding: 0.5rem;
-		background: #0a0a0a;
-		border: 1px solid #003300;
-		border-radius: 0.25rem;
-		font-size: 0.875rem;
-		transition: opacity 0.3s;
 	}
 
 	audio {

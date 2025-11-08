@@ -107,7 +107,7 @@ function normalizeKeystrokes(raw: unknown): NormalizedRecording['keystrokes'] {
 		if (!Number.isFinite(timestamp)) {
 			continue;
 		}
-		const key = coerceString(entry.key) ?? '';
+	const key = coerceKey(entry.key);
 		const eventTypeRaw = coerceString(entry.event_type ?? entry.type);
 		const eventType: 'keydown' | 'keyup' = eventTypeRaw === 'keyup' ? 'keyup' : 'keydown';
 
@@ -163,6 +163,23 @@ function coerceString(value: unknown) {
 	}
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function coerceKey(value: unknown) {
+	if (typeof value !== 'string') {
+		return '';
+	}
+
+	if (value === ' ') {
+		return ' ';
+	}
+
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return '';
+	}
+
+	return trimmed;
 }
 
 function coerceNumber(value: unknown) {
