@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import { Blob as NodeBlob } from 'node:buffer';
+import fixWebmDuration from 'fix-webm-duration';
 import type { KeystrokeEvent } from '../websocket/types';
 
 export interface Recording {
@@ -139,74 +141,45 @@ export class RecordingManager {
 	}
 
 	private async finalizeAudioFile(audioPath: string, durationSeconds: number): Promise<void> {
+		const durationMs = Math.max(0, Math.round(durationSeconds * 1000));
+		const BlobImpl = typeof Blob !== 'undefined' ? Blob : NodeBlob;
+		this.ensureFileReaderPolyfill();
+
 		try {
-			const file = await fs.readFile(audioPath);
-			const patched = this.injectDuration(file, durationSeconds);
-			if (patched) {
-				await fs.writeFile(audioPath, patched);
-			} else {
-				console.warn('Could not update WebM duration metadata; playback duration may be unavailable.');
-			}
+			const fileBuffer = await fs.readFile(audioPath);
+			const blob = new BlobImpl([fileBuffer], { type: 'audio/webm' }) as unknown as Blob;
+			const fixedBlob = (await fixWebmDuration(blob, durationMs, { logger: false })) as Blob;
+			const arrayBuffer = await fixedBlob.arrayBuffer();
+			await fs.writeFile(audioPath, Buffer.from(arrayBuffer));
 		} catch (error) {
 			console.warn('Failed to finalize WebM recording; playback duration may be unavailable:', error);
 		}
 	}
 
-	private injectDuration(buffer: Buffer, durationSeconds: number): Buffer | null {
-		const durationElement = Buffer.from([0x44, 0x89]);
-		const idx = buffer.indexOf(durationElement);
-		if (idx === -1) {
-			return null;
+	private ensureFileReaderPolyfill(): void {
+		if (typeof globalThis.FileReader !== 'undefined') {
+			return;
 		}
 
-		const sizeInfo = this.decodeVint(buffer, idx + 2);
-		if (!sizeInfo) {
-			return null;
+		class NodeFileReader {
+			result: ArrayBuffer | null = null;
+			onloadend: (() => void) | null = null;
+
+			readAsArrayBuffer(blob: Blob): void {
+				blob
+					.arrayBuffer()
+					.then((buffer) => {
+						this.result = buffer;
+						this.onloadend?.();
+					})
+					.catch(() => {
+						this.result = null;
+						this.onloadend?.();
+					});
+			}
 		}
 
-		const { width, value } = sizeInfo;
-		const dataOffset = idx + 2 + width;
-
-		if (dataOffset + value > buffer.length) {
-			return null;
-		}
-
-		const durationValue = durationSeconds * 1000;
-
-		if (value === 4) {
-			buffer.writeFloatBE(durationValue, dataOffset);
-		} else if (value === 8) {
-			buffer.writeDoubleBE(durationValue, dataOffset);
-		} else {
-			return null;
-		}
-
-		return buffer;
-	}
-
-	private decodeVint(buffer: Buffer, offset: number): { width: number; value: number } | null {
-		if (offset >= buffer.length) {
-			return null;
-		}
-
-		let first = buffer[offset];
-		let mask = 0x80;
-		let width = 1;
-
-		while (width <= 8 && (first & mask) === 0) {
-			mask >>= 1;
-			width++;
-		}
-
-		if (width > 8 || offset + width > buffer.length) {
-			return null;
-		}
-
-		let value = first & (mask - 1);
-		for (let i = 1; i < width; i++) {
-			value = (value << 8) | buffer[offset + i];
-		}
-
-		return { width, value };
+		// @ts-expect-error - provide a minimal FileReader implementation for Node.js
+		globalThis.FileReader = NodeFileReader;
 	}
 }

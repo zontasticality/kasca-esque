@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount } from "svelte";
 
 	interface Props {
 		isRecording: boolean;
@@ -9,7 +9,8 @@
 		onserverready?: () => void;
 	}
 
-	let { isRecording, onstart, onstop, onaudiochunk, onserverready }: Props = $props();
+	let { isRecording, onstart, onstop, onaudiochunk, onserverready }: Props =
+		$props();
 
 	let mediaRecorder: MediaRecorder | null = null;
 	let stream: MediaStream | null = null;
@@ -37,8 +38,8 @@
 			hasPermission = true;
 			permissionError = null;
 		} catch (error) {
-			console.error('Microphone permission denied:', error);
-			permissionError = 'Microphone access denied';
+			console.error("Microphone permission denied:", error);
+			permissionError = "Microphone access denied";
 			hasPermission = false;
 		}
 	}
@@ -74,7 +75,7 @@
 
 	function startRecording() {
 		if (!stream || !hasPermission) {
-			alert('Microphone access is required');
+			alert("Microphone access is required");
 			return;
 		}
 
@@ -90,11 +91,11 @@
 		// Create MediaRecorder with WebM format
 		try {
 			mediaRecorder = new MediaRecorder(stream, {
-				mimeType: 'audio/webm'
+				mimeType: "audio/webm",
 			});
 		} catch (error) {
-			console.error('Failed to create MediaRecorder:', error);
-			alert('Failed to start recording');
+			console.error("Failed to create MediaRecorder:", error);
+			alert("Failed to start recording");
 			return;
 		}
 
@@ -112,13 +113,16 @@
 						}
 					})
 					.finally(() => {
-						pendingChunkConversions = Math.max(0, pendingChunkConversions - 1);
+						pendingChunkConversions = Math.max(
+							0,
+							pendingChunkConversions - 1,
+						);
 						checkStopCompletion();
 					});
 			}
 		};
 
-		mediaRecorder.addEventListener('stop', () => {
+		mediaRecorder.addEventListener("stop", () => {
 			recorderStopped = true;
 			checkStopCompletion();
 		});
@@ -127,11 +131,11 @@
 		onstart(recordingId);
 
 		// Start MediaRecorder immediately - chunks will be buffered until server is ready
-		mediaRecorder.start(100); // Emit chunks every 100ms
+		mediaRecorder.start(500); // Emit chunks every 500ms
 	}
 
 	function stopRecording() {
-		if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+		if (mediaRecorder && mediaRecorder.state !== "inactive") {
 			stopPending = true;
 			mediaRecorder.stop();
 			return;
@@ -157,7 +161,9 @@
 			if (isServerReady) {
 				flushChunkBuffer();
 			} else {
-				console.warn('Dropping buffered chunks because server never acknowledged recording start');
+				console.warn(
+					"Dropping buffered chunks because server never acknowledged recording start",
+				);
 				chunkBuffer = [];
 			}
 		}
@@ -182,8 +188,12 @@
 	{:else if !hasPermission}
 		<p class="info">Requesting microphone access...</p>
 	{:else}
-		<button onclick={toggleRecording} class="record-button" class:recording={isRecording}>
-			{isRecording ? 'Stop Recording' : 'Start Recording'}
+		<button
+			onclick={toggleRecording}
+			class="record-button"
+			class:recording={isRecording}
+		>
+			{isRecording ? "Stop Recording" : "Start Recording"}
 		</button>
 
 		{#if isRecording}
