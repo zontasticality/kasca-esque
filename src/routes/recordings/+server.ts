@@ -11,7 +11,10 @@ export const GET: RequestHandler = async () => {
 		const fileSet = new Set(files);
 
 		const recordings = files
-			.filter((file) => file.endsWith('.webm') && !file.includes('_DELETED'))
+			.filter(
+				(file) =>
+					file.endsWith('.webm') && !file.endsWith('_DELETED.webm')
+			)
 			.reduce<{ audio: string; keylog: string }[]>((acc, file) => {
 				const baseName = file.slice(0, -'.webm'.length);
 				const jsonName = `${baseName}.json`;

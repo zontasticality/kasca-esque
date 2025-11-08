@@ -14,6 +14,7 @@
 			event_type: "keydown" | "keyup";
 		}>;
 		audio_file: string;
+		deleted: boolean;
 	}
 
 	interface KeystrokeDisplay {
@@ -42,10 +43,40 @@
 		};
 	});
 
+	function stopPlayback(clearSource = false) {
+		if (audioElement) {
+			audioElement.pause();
+			audioElement.currentTime = 0;
+			if (clearSource) {
+				audioElement.removeAttribute("src");
+				audioElement.load();
+			}
+		}
+		isPlaying = false;
+		currentTime = 0;
+		displayedKeystrokes = [];
+		lastLoadedRecordingId = null;
+	}
+
 	async function loadRecordings() {
 		try {
 			const response = await fetch("/api/recordings");
-			recordings = await response.json();
+			if (!response.ok) {
+				throw new Error("Failed to load recordings");
+			}
+			const data = await response.json();
+			recordings = data;
+			if (selectedRecording) {
+				const refreshed = data.find(
+					(recording: Recording) =>
+						recording.recording_id ===
+						selectedRecording?.recording_id,
+				);
+				selectedRecording = refreshed ?? null;
+				if (!selectedRecording) {
+					stopPlayback(true);
+				}
+			}
 		} catch (error) {
 			console.error("Error loading recordings:", error);
 		}
@@ -53,9 +84,7 @@
 
 	function selectRecording(recording: Recording) {
 		selectedRecording = recording;
-		displayedKeystrokes = [];
-		currentTime = 0;
-		isPlaying = false;
+		stopPlayback(false);
 		duration = getRecordingDurationSeconds(recording);
 	}
 
@@ -74,17 +103,19 @@
 			return;
 		}
 
-			lastLoadedRecordingId = recording.recording_id;
-			player.pause();
-			player.src = `/recordings/${recording.audio_file}`;
-			player.load();
-			currentTime = 0;
-			duration = getRecordingDurationSeconds(recording);
-			isPlaying = false;
-		});
+		lastLoadedRecordingId = recording.recording_id;
+		player.pause();
+		player.src = `/recordings/${recording.audio_file}`;
+		player.load();
+		currentTime = 0;
+		duration = getRecordingDurationSeconds(recording);
+		isPlaying = false;
+	});
 
 	function togglePlayback() {
-		if (!audioElement || !selectedRecording) return;
+		if (!audioElement || !selectedRecording) {
+			return;
+		}
 
 		if (isPlaying) {
 			audioElement.pause();
@@ -144,28 +175,73 @@
 		displayedKeystrokes = [];
 	}
 
-	async function deleteRecording(recording: Recording) {
-		if (!confirm(`Delete recording ${recording.filename}?`)) {
-			return;
+	async function toggleRecordingDeletion(recording: Recording) {
+		if (!recording.deleted) {
+			const confirmed = confirm(
+				`Delete recording ${recording.filename}?`,
+			);
+			if (!confirmed) {
+				return;
+			}
 		}
 
 		try {
 			const response = await fetch(
 				`/api/recordings/${recording.filename}`,
 				{
-					method: "DELETE",
+					method: "PATCH",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({ deleted: !recording.deleted }),
 				},
 			);
 
 			if (response.ok) {
 				await loadRecordings();
-				if (selectedRecording?.filename === recording.filename) {
-					selectedRecording = null;
-					displayedKeystrokes = [];
-				}
+			} else {
+				console.error("Failed to toggle recording deletion", await response.text());
 			}
 		} catch (error) {
-			console.error("Error deleting recording:", error);
+			console.error("Error toggling recording deletion:", error);
+		}
+	}
+
+	function getRecordingBaseName(recording: Recording) {
+		return recording.filename.replace(/(_DELETED)?\.json$/, '');
+	}
+
+	async function renameRecording(recording: Recording) {
+		const currentName = getRecordingBaseName(recording);
+		const input = prompt(
+			"Enter a new recording name (letters, numbers, '.', '_', '-')",
+			currentName,
+		);
+		if (input === null) {
+			return;
+		}
+
+		const trimmed = input.trim().replace(/\.json$/i, '');
+		if (!trimmed || trimmed === currentName) {
+			return;
+		}
+
+		try {
+			const response = await fetch(`/api/recordings/${recording.filename}`, {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ newBaseName: trimmed }),
+			});
+
+			if (response.ok) {
+				await loadRecordings();
+			} else {
+				console.error("Failed to rename recording", await response.text());
+			}
+		} catch (error) {
+			console.error("Error renaming recording:", error);
 		}
 	}
 
@@ -204,44 +280,67 @@
 					<p class="no-recordings">No recordings found</p>
 				{:else}
 					{#each recordings as recording (recording.filename)}
-						<div
-							class="recording-item"
-							class:selected={selectedRecording?.filename ===
-								recording.filename}
-							onclick={() => selectRecording(recording)}
-							onkeydown={(event) => {
-								if (event.key === 'Enter' || event.key === ' ') {
-									event.preventDefault();
-									selectRecording(recording);
-								}
-							}}
-							role="button"
-							tabindex="0"
-						>
-							<div class="recording-info">
-								<span class="recording-date"
-									>{formatTimestamp(
-										recording.start_timestamp,
-									)}</span
-								>
-								<span class="recording-duration">
-									{formatDuration(
-										(recording.end_timestamp -
-											recording.start_timestamp) /
-											1000,
+					<div
+						class="recording-item"
+						class:selected={selectedRecording?.filename ===
+							recording.filename}
+						class:deleted={recording.deleted}
+						onclick={() => selectRecording(recording)}
+						onkeydown={(event) => {
+							if (event.key === 'Enter' || event.key === ' ') {
+								event.preventDefault();
+								selectRecording(recording);
+							}
+						}}
+						role="button"
+						tabindex="0"
+					>
+					<div class="recording-info">
+						<span class="recording-name">{getRecordingBaseName(recording)}</span>
+						<div class="recording-meta">
+							<span>{formatTimestamp(recording.start_timestamp)}</span>
+							<span>•</span>
+							<span>
+								{formatDuration(
+									(recording.end_timestamp - recording.start_timestamp) /
+										1000,
 									)}
-								</span>
-							</div>
-							<button
-								class="delete-button"
-								onclick={(e) => {
-									e.stopPropagation();
-									deleteRecording(recording);
-								}}
-							>
-								×
-							</button>
+							</span>
 						</div>
+						{#if recording.deleted}
+							<span class="recording-badge">Deleted</span>
+						{/if}
+					</div>
+					<div class="recording-actions">
+						<button
+							class="icon-button"
+							onclick={(e) => {
+								e.stopPropagation();
+								renameRecording(recording);
+							}}
+							type="button"
+							title="Rename recording"
+						>
+							<span aria-hidden="true">✏️</span>
+							<span class="sr-only">Rename recording</span>
+						</button>
+						<button
+							class="icon-button"
+							class:restore={recording.deleted}
+							onclick={(e) => {
+								e.stopPropagation();
+								toggleRecordingDeletion(recording);
+							}}
+							type="button"
+							title={recording.deleted ? 'Restore recording' : 'Delete recording'}
+						>
+							<span aria-hidden="true">{recording.deleted ? "↺" : "🗑"}</span>
+							<span class="sr-only">
+								{recording.deleted ? "Restore recording" : "Delete recording"}
+							</span>
+						</button>
+					</div>
+				</div>
 					{/each}
 				{/if}
 			</div>
@@ -252,20 +351,22 @@
 				<div class="player">
 					<h2>Now Playing</h2>
 					<div class="player-info">
-						<p>
-							Recording ID: {selectedRecording.recording_id.slice(
-								0,
-								8,
-							)}
-						</p>
-						<p>
-							Keyboard Session: {selectedRecording.keyboard_session_id.slice(
-								0,
-								8,
+						<p class="player-name">{getRecordingBaseName(selectedRecording)}</p>
+						<p class="player-meta">
+							{formatTimestamp(selectedRecording.start_timestamp)} •
+							{formatDuration(
+								(selectedRecording.end_timestamp - selectedRecording.start_timestamp) /
+									1000,
 							)}
 						</p>
 						<p>Keystrokes: {selectedRecording.keystrokes.length}</p>
 					</div>
+
+					{#if selectedRecording.deleted}
+						<p class="deleted-warning">
+							This recording is soft-deleted. You can still play it, or restore it to mark it active again.
+						</p>
+					{/if}
 
 					<audio
 						bind:this={audioElement}
@@ -275,7 +376,10 @@
 					></audio>
 
 					<div class="controls">
-						<button class="play-button" onclick={togglePlayback}>
+						<button
+							class="play-button"
+							onclick={togglePlayback}
+						>
 							{isPlaying ? "⏸ Pause" : "▶ Play"}
 						</button>
 						<div class="time-display">
@@ -394,6 +498,11 @@
 		text-align: left;
 	}
 
+	.recording-item.deleted {
+		opacity: 0.65;
+		border-color: #332200;
+	}
+
 	.recording-item:hover {
 		background: #001100;
 		border-color: #00aa00;
@@ -405,39 +514,84 @@
 	}
 
 	.recording-info {
+		flex: 1;
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
+		min-width: 0;
 	}
 
-	.recording-date {
-		font-size: 0.875rem;
+	.recording-name {
+		font-size: 1rem;
+		color: #00ff99;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
-	.recording-duration {
+	.recording-meta {
+		display: flex;
+		gap: 0.35rem;
 		font-size: 0.75rem;
 		color: #00aa00;
 	}
 
-	.delete-button {
-		width: 1.5rem;
-		height: 1.5rem;
-		background: #330000;
-		border: 1px solid #aa0000;
-		border-radius: 0.25rem;
-		color: #ff3333;
-		font-size: 1.25rem;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0;
-		line-height: 1;
+	.recording-meta span {
+		line-height: 1.2;
 	}
 
-	.delete-button:hover {
-		background: #440000;
-		border-color: #ff3333;
+	.recording-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		margin-left: 0.75rem;
+		align-items: center;
+	}
+
+	.recording-badge {
+		margin-top: 0.25rem;
+		padding: 0.1rem 0.4rem;
+		font-size: 0.65rem;
+		border: 1px solid #553300;
+		border-radius: 0.25rem;
+		background: #331100;
+		color: #ffcc00;
+		align-self: flex-start;
+	}
+
+	.icon-button {
+		width: 2rem;
+		height: 2rem;
+		border-radius: 50%;
+		border: 1px solid #003300;
+		background: #001100;
+		color: #00ddff;
+		cursor: pointer;
+		font-size: 0.9rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		transition: border-color 0.2s, transform 0.2s;
+	}
+
+	.icon-button.restore {
+		color: #33ff88;
+	}
+
+	.icon-button:hover {
+		border-color: #00ff99;
+		transform: scale(1.05);
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		border: 0;
 	}
 
 	.player-section {
@@ -468,18 +622,28 @@
 		font-weight: normal;
 	}
 
-	.player-info {
-		background: #000000;
-		border: 1px solid #003300;
-		padding: 1rem;
-		border-radius: 0.25rem;
-	}
+		.player-info {
+			background: #000000;
+			border: 1px solid #003300;
+			padding: 1rem;
+			border-radius: 0.25rem;
+		}
 
-	.player-info p {
-		margin: 0.5rem 0;
-		font-size: 0.875rem;
-		color: #00aa00;
-	}
+		.player-info p {
+			margin: 0.35rem 0;
+			font-size: 0.85rem;
+			color: #00aa00;
+		}
+
+		.player-name {
+			font-size: 1.1rem;
+			color: #00ff99;
+		}
+
+		.player-meta {
+			font-size: 0.8rem;
+			color: #00aa00;
+		}
 
 	.controls {
 		display: flex;
@@ -507,6 +671,7 @@
 		background: #004400;
 		border-color: #00ff00;
 	}
+
 
 	.time-display {
 		color: #00aa00;
@@ -549,5 +714,15 @@
 
 	audio {
 		display: none;
+	}
+
+	.deleted-warning {
+		margin: 0;
+		padding: 0.75rem 1rem;
+		background: #331100;
+		border: 1px solid #553300;
+		border-radius: 0.25rem;
+		color: #ffcc00;
+		font-size: 0.85rem;
 	}
 </style>
