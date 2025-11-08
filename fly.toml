@@ -1,0 +1,31 @@
+# fly.toml generated for kasca-esque; update the `app` name after running `fly launch`
+app = "kasca-esque"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+
+[[mounts]]
+  source = "recordings"
+  destination = "/app/recordings"
+  processes = ["app"]
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 3000
+  processes = ["app"]
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"

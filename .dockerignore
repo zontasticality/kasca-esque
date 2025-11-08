@@ -1,0 +1,12 @@
+.git
+.gitignore
+.svelte-kit
+node_modules
+recordings
+build
+dist
+*.log
+*.tmp
+.cache
+.vscode
+.DS_Store
