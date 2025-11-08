@@ -24,12 +24,13 @@
 
 	let recordings = $state<Recording[]>([]);
 	let selectedRecording = $state<Recording | null>(null);
-	let audioElement: HTMLAudioElement;
+	let audioElement = $state<HTMLAudioElement | null>(null);
 	let isPlaying = $state(false);
 	let currentTime = $state(0);
 	let duration = $state(0);
 	let displayedKeystrokes = $state<KeystrokeDisplay[]>([]);
 	let animationId: number | null = null;
+	let lastLoadedRecordingId: string | null = null;
 
 	onMount(() => {
 		loadRecordings();
@@ -55,11 +56,32 @@
 		displayedKeystrokes = [];
 		currentTime = 0;
 		isPlaying = false;
-
-		if (audioElement) {
-			audioElement.src = `/recordings/${recording.audio_file}`;
-		}
+		duration = getRecordingDurationSeconds(recording);
 	}
+
+	$effect(() => {
+		const player = audioElement;
+		const recording = selectedRecording;
+
+		if (!player || !recording) {
+			if (!recording) {
+				lastLoadedRecordingId = null;
+			}
+			return;
+		}
+
+		if (recording.recording_id === lastLoadedRecordingId) {
+			return;
+		}
+
+			lastLoadedRecordingId = recording.recording_id;
+			player.pause();
+			player.src = `/recordings/${recording.audio_file}`;
+			player.load();
+			currentTime = 0;
+			duration = getRecordingDurationSeconds(recording);
+			isPlaying = false;
+		});
 
 	function togglePlayback() {
 		if (!audioElement || !selectedRecording) return;
@@ -107,11 +129,13 @@
 	}
 
 	function handleLoadedMetadata() {
-		console.log("updating metadata");
 		if (audioElement) {
-			duration = audioElement.duration;
-			console.log("new duration:", duration);
-			console.log("audio", audioElement);
+			const mediaDuration = audioElement.duration;
+			if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+				duration = mediaDuration;
+			} else {
+				duration = getRecordingDurationSeconds(selectedRecording);
+			}
 		}
 	}
 
@@ -155,6 +179,15 @@
 		const secs = Math.floor(seconds % 60);
 		return `${mins}:${secs.toString().padStart(2, "0")}`;
 	}
+
+	function getRecordingDurationSeconds(recording: Recording | null): number {
+		if (!recording) {
+			return 0;
+		}
+
+		const diff = (recording.end_timestamp - recording.start_timestamp) / 1000;
+		return Number.isFinite(diff) && diff > 0 ? diff : 0;
+	}
 </script>
 
 <div class="playback-container">
@@ -176,6 +209,12 @@
 							class:selected={selectedRecording?.filename ===
 								recording.filename}
 							onclick={() => selectRecording(recording)}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									selectRecording(recording);
+								}
+							}}
 							role="button"
 							tabindex="0"
 						>

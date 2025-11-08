@@ -17,6 +17,9 @@
 	let permissionError = $state<string | null>(null);
 	let chunkBuffer: ArrayBuffer[] = [];
 	let isServerReady = $state(false);
+	let stopPending = false;
+	let recorderStopped = false;
+	let pendingChunkConversions = 0;
 
 	onMount(() => {
 		requestMicrophonePermission();
@@ -49,7 +52,10 @@
 	}
 
 	function flushChunkBuffer() {
-		console.log(`Flushing ${chunkBuffer.length} buffered chunks`);
+		if (!isServerReady || chunkBuffer.length === 0) {
+			return;
+		}
+
 		while (chunkBuffer.length > 0) {
 			const chunk = chunkBuffer.shift();
 			if (chunk) {
@@ -77,6 +83,9 @@
 		// Reset state
 		chunkBuffer = [];
 		isServerReady = false;
+		stopPending = false;
+		recorderStopped = false;
+		pendingChunkConversions = 0;
 
 		// Create MediaRecorder with WebM format
 		try {
@@ -91,18 +100,28 @@
 
 		mediaRecorder.ondataavailable = (event) => {
 			if (event.data.size > 0) {
-				event.data.arrayBuffer().then((buffer) => {
-					if (isServerReady) {
-						// Server is ready, send chunks directly
-						onaudiochunk(buffer);
-					} else {
-						// Buffer chunks until server confirms it's ready
-						console.log('Buffering chunk of size:', buffer.byteLength);
-						chunkBuffer.push(buffer);
-					}
-				});
+				pendingChunkConversions++;
+
+				event.data
+					.arrayBuffer()
+					.then((buffer) => {
+						if (isServerReady) {
+							onaudiochunk(buffer);
+						} else {
+							chunkBuffer.push(buffer);
+						}
+					})
+					.finally(() => {
+						pendingChunkConversions = Math.max(0, pendingChunkConversions - 1);
+						checkStopCompletion();
+					});
 			}
 		};
+
+		mediaRecorder.addEventListener('stop', () => {
+			recorderStopped = true;
+			checkStopCompletion();
+		});
 
 		// First notify parent to send start_recording message
 		onstart(recordingId);
@@ -113,12 +132,41 @@
 
 	function stopRecording() {
 		if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+			stopPending = true;
 			mediaRecorder.stop();
-			mediaRecorder = null;
+			return;
 		}
-		// Clear any remaining buffered chunks
+
+		// If recorder was never started, still reset state and signal parent
 		chunkBuffer = [];
 		isServerReady = false;
+		stopPending = false;
+		recorderStopped = false;
+		pendingChunkConversions = 0;
+		onstop();
+	}
+
+	function checkStopCompletion() {
+		if (stopPending && recorderStopped && pendingChunkConversions === 0) {
+			finishStop();
+		}
+	}
+
+	function finishStop() {
+		if (chunkBuffer.length > 0) {
+			if (isServerReady) {
+				flushChunkBuffer();
+			} else {
+				console.warn('Dropping buffered chunks because server never acknowledged recording start');
+				chunkBuffer = [];
+			}
+		}
+
+		isServerReady = false;
+		stopPending = false;
+		recorderStopped = false;
+		pendingChunkConversions = 0;
+		mediaRecorder = null;
 		onstop();
 	}
 </script>

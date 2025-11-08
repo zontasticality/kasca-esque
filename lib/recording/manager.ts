@@ -96,6 +96,10 @@ export class RecordingManager {
 
 		// Update end timestamp
 		recording.end_timestamp = endTimestamp;
+		const audioPath = path.join(this.recordingsDir, recording.audio_file);
+		const durationSeconds = (endTimestamp - recording.start_timestamp) / 1000;
+
+		await this.finalizeAudioFile(audioPath, durationSeconds);
 
 		// Write JSON metadata
 		const jsonFilename = this.generateFilename(recording.start_timestamp, 'json');
@@ -132,5 +136,77 @@ export class RecordingManager {
 		const seconds = String(date.getSeconds()).padStart(2, '0');
 
 		return `recording_${year}${month}${day}_${hours}${minutes}${seconds}.${extension}`;
+	}
+
+	private async finalizeAudioFile(audioPath: string, durationSeconds: number): Promise<void> {
+		try {
+			const file = await fs.readFile(audioPath);
+			const patched = this.injectDuration(file, durationSeconds);
+			if (patched) {
+				await fs.writeFile(audioPath, patched);
+			} else {
+				console.warn('Could not update WebM duration metadata; playback duration may be unavailable.');
+			}
+		} catch (error) {
+			console.warn('Failed to finalize WebM recording; playback duration may be unavailable:', error);
+		}
+	}
+
+	private injectDuration(buffer: Buffer, durationSeconds: number): Buffer | null {
+		const durationElement = Buffer.from([0x44, 0x89]);
+		const idx = buffer.indexOf(durationElement);
+		if (idx === -1) {
+			return null;
+		}
+
+		const sizeInfo = this.decodeVint(buffer, idx + 2);
+		if (!sizeInfo) {
+			return null;
+		}
+
+		const { width, value } = sizeInfo;
+		const dataOffset = idx + 2 + width;
+
+		if (dataOffset + value > buffer.length) {
+			return null;
+		}
+
+		const durationValue = durationSeconds * 1000;
+
+		if (value === 4) {
+			buffer.writeFloatBE(durationValue, dataOffset);
+		} else if (value === 8) {
+			buffer.writeDoubleBE(durationValue, dataOffset);
+		} else {
+			return null;
+		}
+
+		return buffer;
+	}
+
+	private decodeVint(buffer: Buffer, offset: number): { width: number; value: number } | null {
+		if (offset >= buffer.length) {
+			return null;
+		}
+
+		let first = buffer[offset];
+		let mask = 0x80;
+		let width = 1;
+
+		while (width <= 8 && (first & mask) === 0) {
+			mask >>= 1;
+			width++;
+		}
+
+		if (width > 8 || offset + width > buffer.length) {
+			return null;
+		}
+
+		let value = first & (mask - 1);
+		for (let i = 1; i < width; i++) {
+			value = (value << 8) | buffer[offset + i];
+		}
+
+		return { width, value };
 	}
 }
