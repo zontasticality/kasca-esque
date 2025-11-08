@@ -10,18 +10,22 @@ A dual-endpoint web application for synchronized keystroke and audio recording. 
 
 **Purpose**: Capture and stream keystroke data.
 
-**UI Components**:
+#### UI
 - Full-page textarea element
 - No mouse interaction or paste support
 - Minimal chrome/interface elements
 
-**Functionality**:
+#### Keystroke Capture
 - Capture all keypress events with millisecond precision timestamps
-- Stream keystroke data to server via WebSocket
-- Each client assigned unique session ID on connection
-- Maintain persistent connection for duration of session
+- Track both `keydown` and `keyup` events
 
-**Data Format** (streamed to server):
+#### Session & Connection
+- Client assigned unique session ID on connection
+- Maintain persistent WebSocket connection for duration of session
+- Stream keystroke data to server in real-time
+
+#### Data Format
+Streamed to server via WebSocket:
 ```json
 {
   "session_id": "uuid",
@@ -35,36 +39,58 @@ A dual-endpoint web application for synchronized keystroke and audio recording. 
 
 **Purpose**: Monitor keyboard clients, record audio, and coordinate data collection.
 
-**UI Components**:
+#### Client Selection Component
 
-1. **Client Selector**
-   - Radio button list of active keyboard clients
-   - Each client identified by session ID
-   - Each radio button colored uniquely based on hash of session ID
-   - Auto-update when clients connect/disconnect
-
-2. **Recording Controls**
-   - Single button toggles between "Start Recording" and "Stop Recording" states
-   - Button changes appearance when active
-
-3. **Audio Visualizer**
-   - Real-time waveform visualization of microphone input
-   - Continuous display (even when not recording)
-   - Updates at 60fps minimum
-
-4. **Recording Indicator**
-   - Animated visual indicator when recording is active
-   - Pulsing or blinking animation
+**UI**:
+- Radio button list of active keyboard clients
+- Each client identified by session ID
+- Each radio button colored uniquely based on hash of session ID
+- Auto-update when clients connect/disconnect
 
 **Functionality**:
-- List all active keyboard endpoint clients
-- Select target keyboard client for recording session
-- Capture audio from local microphone
+- Display all active keyboard endpoint clients
+- Track selection of target keyboard client for recording session
+- Subscribe to WebSocket updates for client list changes
+
+#### Audio Recording Component
+
+**UI**:
+- Single toggle button: "Start Recording" / "Stop Recording"
+- Button changes appearance when active
+- Animated recording indicator (pulsing/blinking) when active
+
+**Functionality**:
+- Capture audio from local microphone (MediaRecorder API)
 - Start/stop recording sessions
-- Display live audio waveform
-- Send audio stream to server when recording
-- Recording should stop automatically when session on `/keyboard` disconnects.
-- Panel to view, play, and delete (doesn't actually delete, just appends `_DELETED` to the file). Should also support streaming the keyboard (keypress up/down) stream and displaying it in a fading animated list. 
+- Stream audio data to server during recording
+- Auto-stop recording when selected keyboard client disconnects
+
+#### Audio Visualizer Component
+
+**UI**:
+- Real-time waveform visualization of microphone input
+- Continuous display (even when not recording)
+- Updates at 60fps minimum
+
+**Functionality**:
+- Access microphone via Web Audio API
+- Render live waveform to canvas/WebGL
+- Independent of recording state
+
+#### Recording Playback Panel
+
+**UI**:
+- List of saved recordings
+- Playback controls for each recording
+- Delete button (soft delete)
+- Keystroke event display (fading animated list)
+
+**Functionality**:
+- View all recordings (excluding soft-deleted)
+- Play audio files
+- Soft delete recordings (appends `_DELETED` to filename)
+- Stream and display keystroke events (keydown/keyup) synchronized with playback
+- Animate keystrokes in a fading list visualization 
 
 ## Styling
 
@@ -119,55 +145,65 @@ When recording is active, create timestamped file:
 
 ### Server
 
-**WebSocket Support**:
+#### WebSocket Handlers
+
+**Connection Management**:
 - Handle multiple concurrent keyboard clients
-- Broadcast keyboard client list to control clients
-- Stream keystroke data from keyboard clients
-- Stream audio data from control clients
-
-**Session Management**:
+- Handle multiple control clients
 - Generate unique session IDs for all clients
-- Track active connections
-- Clean up on disconnect
+- Track active connections and clean up on disconnect
 
-**File Storage**:
+**Keystroke Stream** (`/keyboard` clients):
+- Receive keystroke events from keyboard clients
+- Forward keystroke data to recording system when active
+
+**Audio Stream** (control clients):
+- Receive audio data from control clients during recording
+- Write audio stream to file storage
+
+**Client Registry Broadcast** (control clients):
+- Maintain list of active keyboard clients
+- Broadcast client list updates to all control clients on connect/disconnect
+
+#### File Storage
+
+**Recording Writer**:
 - Write recording metadata to JSON
-- Write audio stream to audio file
+- Write audio stream to `.wav` file
 - Ensure atomic writes
 - Handle concurrent recordings (if multiple control clients)
 
 ### Client
 
-**Browser Requirements**:
-- WebSocket API
-- MediaRecorder API for audio capture
-- Web Audio API for visualization
+#### Technology Stack
+- **Framework**: Svelte 5 + SvelteKit
+- **Runtime**: Node.js (for server-side file operations)
+
+#### Browser APIs Required
+- WebSocket API (both endpoints)
+- MediaRecorder API (control endpoint - audio capture)
+- Web Audio API (control endpoint - visualization)
+- Canvas or WebGL (control endpoint - waveform rendering)
 - Modern ES6+ JavaScript support
 
-**Framework Details**
- - Use Svelte5 + SvelteKit w/ Node to write to files.
+#### Keyboard Endpoint Implementation
+- Minimal JavaScript for keystroke capture
+- WebSocket client for streaming
+- No framework dependencies required
 
-**Keyboard Endpoint**:
-- Minimal JavaScript for keystroke capture and WebSocket
-- No framework requirements
-
-**Control Endpoint**:
-- Canvas or WebGL for audio visualization
-- Audio permission handling
-- Dynamic UI updates for client list
+#### Control Endpoint Implementation
+- Audio permission handling and error states
+- Dynamic UI updates for real-time client list
+- WebSocket client for bidirectional communication
 
 ## Security Considerations
 
-- No authentication specified (optional future enhancement)
-- Keyboard clients should be isolated (no cross-client communication)
+**Authentication**: Not implemented in initial version
+
+**Client Isolation**: Keyboard clients must not communicate with each other
+
+**Data Sensitivity**:
 - Audio data contains sensitive information
-- Consider HTTPS/WSS for production deployment
+- Keystroke data may contain passwords/sensitive input
 
-## Future Enhancements
-
-- Multiple simultaneous recordings
-- Playback functionality
-- Authentication and authorization
-- Recording metadata (notes, tags)
-- Export to different formats
-- Real-time keystroke display on control endpoint
+**Transport Security**: Use HTTPS/WSS for production deployment
