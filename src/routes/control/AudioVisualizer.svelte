@@ -4,7 +4,7 @@
 	let canvas: HTMLCanvasElement;
 	let audioContext: AudioContext | null = null;
 	let analyser: AnalyserNode | null = null;
-	let dataArray: Uint8Array | null = null;
+	let dataArray: Uint8Array<ArrayBuffer> | null = null;
 	let animationId: number | null = null;
 	let stream: MediaStream | null = null;
 
@@ -27,7 +27,7 @@
 			source.connect(analyser);
 
 			const bufferLength = analyser.frequencyBinCount;
-			dataArray = new Uint8Array(bufferLength);
+			dataArray = new Uint8Array(bufferLength) as Uint8Array<ArrayBuffer>;
 
 			draw();
 		} catch (error) {
