@@ -87,19 +87,22 @@ export class WebSocketManager {
 		this.sendClientList(ws);
 
 		// Handle messages
-		ws.on('message', (data: Buffer | string) => {
-			// Check if it's binary data (audio chunk)
-			if (data instanceof Buffer || data instanceof ArrayBuffer) {
-				this.handleAudioChunk(sessionId, data as Buffer);
-			} else {
-				// Text message (JSON)
-				try {
-					const message = JSON.parse(data.toString());
+		ws.on('message', (data: Buffer) => {
+			// Try to parse as JSON first (text message)
+			try {
+				const text = data.toString('utf-8');
+				// Check if it looks like JSON (starts with { or [)
+				if (text[0] === '{' || text[0] === '[') {
+					const message = JSON.parse(text);
 					this.handleControlMessage(sessionId, message);
-				} catch (error) {
-					console.error('Error parsing control message:', error);
+					return;
 				}
+			} catch (error) {
+				// Not JSON, treat as binary
 			}
+
+			// If we got here, it's binary data (audio chunk)
+			this.handleAudioChunk(sessionId, data);
 		});
 
 		// Handle disconnect

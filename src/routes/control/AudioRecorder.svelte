@@ -72,8 +72,15 @@
 			}
 		};
 
-		mediaRecorder.start(100); // Emit chunks every 100ms
+		// First notify parent to send start_recording message
 		onstart(recordingId);
+
+		// Delay starting MediaRecorder to ensure server has received start_recording
+		setTimeout(() => {
+			if (mediaRecorder && mediaRecorder.state === 'inactive') {
+				mediaRecorder.start(100); // Emit chunks every 100ms
+			}
+		}, 100);
 	}
 
 	function stopRecording() {

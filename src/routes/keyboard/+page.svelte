@@ -75,8 +75,8 @@
 	}
 
 	function handleMouseDown(event: MouseEvent) {
-		// Block mouse interaction
-		event.preventDefault();
+		// Block text selection but allow focus
+		// Don't prevent default entirely
 	}
 
 	function handleContextMenu(event: MouseEvent) {
@@ -157,6 +157,10 @@
 		resize: none;
 		line-height: 1.6;
 		cursor: text;
+		user-select: none;
+		-webkit-user-select: none;
+		-moz-user-select: none;
+		-ms-user-select: none;
 	}
 
 	textarea::placeholder {
