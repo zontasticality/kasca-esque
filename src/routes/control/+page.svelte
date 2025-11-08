@@ -11,6 +11,7 @@
 	let selectedClientId = $state<string | null>(null);
 	let isRecording = $state(false);
 	let currentRecordingId = $state<string | null>(null);
+	let audioRecorderRef: AudioRecorder | null = null;
 
 	onMount(() => {
 		connectWebSocket();
@@ -64,6 +65,10 @@
 				break;
 			case 'recording_started':
 				console.log('Recording started:', message);
+				// Notify AudioRecorder that server is ready to receive chunks
+				if (audioRecorderRef) {
+					audioRecorderRef.notifyServerReady();
+				}
 				break;
 			case 'recording_stopped':
 				console.log('Recording stopped:', message);
@@ -148,6 +153,7 @@
 			<ClientSelector {clients} {selectedClientId} onselect={handleClientSelect} />
 
 			<AudioRecorder
+				bind:this={audioRecorderRef}
 				{isRecording}
 				onstart={handleRecordingStart}
 				onstop={handleRecordingStop}

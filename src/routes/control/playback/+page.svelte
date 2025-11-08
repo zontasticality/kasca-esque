@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount } from "svelte";
 
 	interface Recording {
 		filename: string;
@@ -11,7 +11,7 @@
 		keystrokes: Array<{
 			timestamp: number;
 			key: string;
-			event_type: 'keydown' | 'keyup';
+			event_type: "keydown" | "keyup";
 		}>;
 		audio_file: string;
 	}
@@ -43,10 +43,10 @@
 
 	async function loadRecordings() {
 		try {
-			const response = await fetch('/api/recordings');
+			const response = await fetch("/api/recordings");
 			recordings = await response.json();
 		} catch (error) {
-			console.error('Error loading recordings:', error);
+			console.error("Error loading recordings:", error);
 		}
 	}
 
@@ -78,11 +78,14 @@
 
 		animationId = requestAnimationFrame(updateKeystrokeDisplay);
 
-		const playbackTimestamp = selectedRecording.start_timestamp + currentTime * 1000;
+		const playbackTimestamp =
+			selectedRecording.start_timestamp + currentTime * 1000;
 
 		// Find keystrokes that should be visible
 		const relevantKeystrokes = selectedRecording.keystrokes.filter(
-			(ks) => ks.event_type === 'keydown' && ks.timestamp <= playbackTimestamp
+			(ks) =>
+				ks.event_type === "keydown" &&
+				ks.timestamp <= playbackTimestamp,
 		);
 
 		// Update displayed keystrokes with fading effect
@@ -92,7 +95,7 @@
 			return {
 				key: ks.key,
 				timestamp: ks.timestamp,
-				opacity
+				opacity,
 			};
 		});
 	}
@@ -104,8 +107,11 @@
 	}
 
 	function handleLoadedMetadata() {
+		console.log("updating metadata");
 		if (audioElement) {
 			duration = audioElement.duration;
+			console.log("new duration:", duration);
+			console.log("audio", audioElement);
 		}
 	}
 
@@ -120,9 +126,12 @@
 		}
 
 		try {
-			const response = await fetch(`/api/recordings/${recording.filename}`, {
-				method: 'DELETE'
-			});
+			const response = await fetch(
+				`/api/recordings/${recording.filename}`,
+				{
+					method: "DELETE",
+				},
+			);
 
 			if (response.ok) {
 				await loadRecordings();
@@ -132,7 +141,7 @@
 				}
 			}
 		} catch (error) {
-			console.error('Error deleting recording:', error);
+			console.error("Error deleting recording:", error);
 		}
 	}
 
@@ -144,7 +153,7 @@
 	function formatDuration(seconds: number): string {
 		const mins = Math.floor(seconds / 60);
 		const secs = Math.floor(seconds % 60);
-		return `${mins}:${secs.toString().padStart(2, '0')}`;
+		return `${mins}:${secs.toString().padStart(2, "0")}`;
 	}
 </script>
 
@@ -164,15 +173,24 @@
 					{#each recordings as recording (recording.filename)}
 						<div
 							class="recording-item"
-							class:selected={selectedRecording?.filename === recording.filename}
+							class:selected={selectedRecording?.filename ===
+								recording.filename}
 							onclick={() => selectRecording(recording)}
 							role="button"
 							tabindex="0"
 						>
 							<div class="recording-info">
-								<span class="recording-date">{formatTimestamp(recording.start_timestamp)}</span>
+								<span class="recording-date"
+									>{formatTimestamp(
+										recording.start_timestamp,
+									)}</span
+								>
 								<span class="recording-duration">
-									{formatDuration((recording.end_timestamp - recording.start_timestamp) / 1000)}
+									{formatDuration(
+										(recording.end_timestamp -
+											recording.start_timestamp) /
+											1000,
+									)}
 								</span>
 							</div>
 							<button
@@ -195,8 +213,18 @@
 				<div class="player">
 					<h2>Now Playing</h2>
 					<div class="player-info">
-						<p>Recording ID: {selectedRecording.recording_id.slice(0, 8)}</p>
-						<p>Keyboard Session: {selectedRecording.keyboard_session_id.slice(0, 8)}</p>
+						<p>
+							Recording ID: {selectedRecording.recording_id.slice(
+								0,
+								8,
+							)}
+						</p>
+						<p>
+							Keyboard Session: {selectedRecording.keyboard_session_id.slice(
+								0,
+								8,
+							)}
+						</p>
 						<p>Keystrokes: {selectedRecording.keystrokes.length}</p>
 					</div>
 
@@ -209,10 +237,12 @@
 
 					<div class="controls">
 						<button class="play-button" onclick={togglePlayback}>
-							{isPlaying ? '⏸ Pause' : '▶ Play'}
+							{isPlaying ? "⏸ Pause" : "▶ Play"}
 						</button>
 						<div class="time-display">
-							{formatDuration(currentTime)} / {formatDuration(duration)}
+							{formatDuration(currentTime)} / {formatDuration(
+								duration,
+							)}
 						</div>
 					</div>
 
@@ -220,8 +250,13 @@
 						<h3>Keystrokes</h3>
 						<div class="keystroke-list">
 							{#each displayedKeystrokes as keystroke (keystroke.timestamp)}
-								<span class="keystroke-item" style="opacity: {keystroke.opacity}">
-									{keystroke.key === ' ' ? '␣' : keystroke.key}
+								<span
+									class="keystroke-item"
+									style="opacity: {keystroke.opacity}"
+								>
+									{keystroke.key === " "
+										? "␣"
+										: keystroke.key}
 								</span>
 							{/each}
 						</div>

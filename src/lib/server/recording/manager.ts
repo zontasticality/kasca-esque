@@ -1,7 +1,11 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import type { KeystrokeEvent } from '../websocket/types';
+
+const execAsync = promisify(exec);
 
 export interface Recording {
 	recording_id: string;
@@ -94,6 +98,16 @@ export class RecordingManager {
 			this.audioWriteStreams.delete(recordingId);
 		}
 
+		// Fix WebM duration metadata
+		const audioPath = path.join(this.recordingsDir, recording.audio_file);
+		try {
+			await this.fixWebMDuration(audioPath);
+			console.log(`Fixed duration metadata for ${recording.audio_file}`);
+		} catch (error) {
+			console.error(`Failed to fix WebM duration for ${recording.audio_file}:`, error);
+			// Continue anyway - file is still playable, just without duration
+		}
+
 		// Update end timestamp
 		recording.end_timestamp = endTimestamp;
 
@@ -120,6 +134,47 @@ export class RecordingManager {
 
 	isRecording(recordingId: string): boolean {
 		return this.recordings.has(recordingId);
+	}
+
+	private async fixWebMDuration(filePath: string): Promise<void> {
+		// Create temporary file path
+		const tempPath = `${filePath}.temp.webm`;
+
+		// Use ffmpeg to remux the file, which will properly write the duration metadata
+		// -i: input file
+		// -c copy: copy streams without re-encoding (fast)
+		// -y: overwrite output file if exists
+		// -loglevel error: only show errors, not info messages
+		const command = `ffmpeg -loglevel error -i "${filePath}" -c copy -y "${tempPath}"`;
+
+		try {
+			const { stdout, stderr } = await execAsync(command);
+
+			if (stderr) {
+				console.error('ffmpeg stderr:', stderr);
+			}
+
+			// Verify temp file was created and has content
+			if (!existsSync(tempPath)) {
+				throw new Error('ffmpeg did not create output file');
+			}
+
+			const tempStats = await fs.stat(tempPath);
+			if (tempStats.size === 0) {
+				throw new Error('ffmpeg created empty output file');
+			}
+
+			// Replace original with fixed version
+			await fs.unlink(filePath);
+			await fs.rename(tempPath, filePath);
+		} catch (error) {
+			console.error('ffmpeg error:', error);
+			// Clean up temp file if it exists
+			if (existsSync(tempPath)) {
+				await fs.unlink(tempPath);
+			}
+			throw error;
+		}
 	}
 
 	private generateFilename(timestamp: number, extension: string): string {

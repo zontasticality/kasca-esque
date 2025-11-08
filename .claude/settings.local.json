@@ -1,11 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm create svelte@latest app)",
-      "Bash(npm install)",
-      "Bash(npm run build:*)",
-      "Bash(npm start)",
-      "Bash(curl:*)"
+      "Bash(tree:*)",
+      "Bash(cat:*)",
+      "Bash(curl:*)",
+      "Bash(find:*)",
+      "WebSearch",
+      "Bash(ffmpeg:*)",
+      "Bash(ffprobe:*)",
+      "Bash(ldd:*)",
+      "Bash(patchelf:*)",
+      "Bash(readelf:*)",
+      "Bash(pgrep:*)",
+      "Bash(npx tsc:*)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []

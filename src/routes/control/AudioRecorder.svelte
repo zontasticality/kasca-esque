@@ -6,14 +6,17 @@
 		onstart: (recordingId: string) => void;
 		onstop: () => void;
 		onaudiochunk: (chunk: ArrayBuffer) => void;
+		onserverready?: () => void;
 	}
 
-	let { isRecording, onstart, onstop, onaudiochunk }: Props = $props();
+	let { isRecording, onstart, onstop, onaudiochunk, onserverready }: Props = $props();
 
 	let mediaRecorder: MediaRecorder | null = null;
 	let stream: MediaStream | null = null;
 	let hasPermission = $state(false);
 	let permissionError = $state<string | null>(null);
+	let chunkBuffer: ArrayBuffer[] = [];
+	let isServerReady = $state(false);
 
 	onMount(() => {
 		requestMicrophonePermission();
@@ -37,6 +40,24 @@
 		}
 	}
 
+	export function notifyServerReady() {
+		isServerReady = true;
+		flushChunkBuffer();
+		if (onserverready) {
+			onserverready();
+		}
+	}
+
+	function flushChunkBuffer() {
+		console.log(`Flushing ${chunkBuffer.length} buffered chunks`);
+		while (chunkBuffer.length > 0) {
+			const chunk = chunkBuffer.shift();
+			if (chunk) {
+				onaudiochunk(chunk);
+			}
+		}
+	}
+
 	function toggleRecording() {
 		if (isRecording) {
 			stopRecording();
@@ -53,6 +74,10 @@
 
 		const recordingId = crypto.randomUUID();
 
+		// Reset state
+		chunkBuffer = [];
+		isServerReady = false;
+
 		// Create MediaRecorder with WebM format
 		try {
 			mediaRecorder = new MediaRecorder(stream, {
@@ -67,7 +92,14 @@
 		mediaRecorder.ondataavailable = (event) => {
 			if (event.data.size > 0) {
 				event.data.arrayBuffer().then((buffer) => {
-					onaudiochunk(buffer);
+					if (isServerReady) {
+						// Server is ready, send chunks directly
+						onaudiochunk(buffer);
+					} else {
+						// Buffer chunks until server confirms it's ready
+						console.log('Buffering chunk of size:', buffer.byteLength);
+						chunkBuffer.push(buffer);
+					}
 				});
 			}
 		};
@@ -75,12 +107,8 @@
 		// First notify parent to send start_recording message
 		onstart(recordingId);
 
-		// Delay starting MediaRecorder to ensure server has received start_recording
-		setTimeout(() => {
-			if (mediaRecorder && mediaRecorder.state === 'inactive') {
-				mediaRecorder.start(100); // Emit chunks every 100ms
-			}
-		}, 100);
+		// Start MediaRecorder immediately - chunks will be buffered until server is ready
+		mediaRecorder.start(100); // Emit chunks every 100ms
 	}
 
 	function stopRecording() {
@@ -88,6 +116,9 @@
 			mediaRecorder.stop();
 			mediaRecorder = null;
 		}
+		// Clear any remaining buffered chunks
+		chunkBuffer = [];
+		isServerReady = false;
 		onstop();
 	}
 </script>
