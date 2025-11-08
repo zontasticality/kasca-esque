@@ -21,23 +21,20 @@ A dual-endpoint web application for synchronized keystroke and audio recording. 
 
 #### Session & Connection
 - Client assigned unique session ID on connection
+- WebSocket endpoint: `/ws/keyboard`
 - Maintain persistent WebSocket connection for duration of session
 - Stream keystroke data to server in real-time
 
 #### Data Format
-Streamed to server via WebSocket:
-```json
-{
-  "session_id": "uuid",
-  "timestamp": 1234567890123,
-  "key": "a",
-  "event_type": "keydown|keyup"
-}
-```
+See [PROTOCOL.md](./PROTOCOL.md) for WebSocket message specifications.
 
 ### Control Endpoint (`/control`)
 
 **Purpose**: Monitor keyboard clients, record audio, and coordinate data collection.
+
+**WebSocket endpoint**: `/ws/control`
+
+**Additional routes**: `/control/playback` (Recording Playback Panel)
 
 #### Client Selection Component
 
@@ -114,6 +111,8 @@ Streamed to server via WebSocket:
 
 ## Data Storage
 
+**Storage location**: `./recordings/`
+
 ### Recording File Format
 
 When recording is active, create timestamped file:
@@ -135,11 +134,11 @@ When recording is active, create timestamped file:
       "event_type": "keydown"
     }
   ],
-  "audio_file": "recording_YYYYMMDD_HHMMSS.wav"
+  "audio_file": "recording_YYYYMMDD_HHMMSS.webm"
 }
 ```
 
-**Audio File**: Separate file in `.wav`, referenced by main JSON file.
+**Audio File**: Separate file in `.webm` format, referenced by main JSON file.
 
 ## Technical Requirements
 
@@ -168,8 +167,8 @@ When recording is active, create timestamped file:
 #### File Storage
 
 **Recording Writer**:
-- Write recording metadata to JSON
-- Write audio stream to `.wav` file
+- Write recording metadata to JSON in `./recordings/`
+- Write audio stream to `.webm` file
 - Ensure atomic writes
 - Handle concurrent recordings (if multiple control clients)
 
