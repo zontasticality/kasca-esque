@@ -8,6 +8,7 @@ dependencies = [
     "datasets>=4.4.1",
     "jupyter>=1.1.1",
     "librosa>=0.11.0",
+    "modal>=1.2.1",
     "torch>=2.9.0",
     "torchaudio>=2.9.0",
     "torchcodec>=0.8.1",
