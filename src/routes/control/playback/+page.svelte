@@ -584,6 +584,7 @@
 		display: flex;
 		flex-direction: column;
 		padding: 2rem;
+		overflow: hidden;
 	}
 
 	.no-selection {
@@ -598,7 +599,10 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: 1.25rem;
+		min-height: 0;
+		overflow-y: auto;
+		padding-right: 0.5rem;
 	}
 
 	.player h2 {
@@ -699,7 +703,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
-		margin-top: 1.25rem;
 	}
 
 	audio {
