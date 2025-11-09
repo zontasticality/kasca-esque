@@ -45,16 +45,20 @@
 		};
 	}
 
-	function sendKeystroke(key: string, eventType: 'keydown' | 'keyup') {
+	function sendKeystroke(event: KeyboardEvent, eventType: 'keydown' | 'keyup') {
 		if (!ws || !sessionId || ws.readyState !== WebSocket.OPEN) {
 			return;
 		}
+
+		const physicalKey = event.code || event.key || 'Unidentified';
+		const textValue = event.key ?? '';
 
 		const message = {
 			type: 'keystroke',
 			session_id: sessionId,
 			timestamp: Date.now(),
-			key: key,
+			key: physicalKey,
+			text: textValue,
 			event_type: eventType
 		};
 
@@ -62,11 +66,11 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		sendKeystroke(event.key, 'keydown');
+		sendKeystroke(event, 'keydown');
 	}
 
 	function handleKeyup(event: KeyboardEvent) {
-		sendKeystroke(event.key, 'keyup');
+		sendKeystroke(event, 'keyup');
 	}
 
 	function handlePaste(event: ClipboardEvent) {

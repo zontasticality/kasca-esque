@@ -19,7 +19,7 @@ export function buildKeyTimeline(keystrokes: readonly KeystrokeEvent[]) {
 	const pressed = new Set<string>();
 
 	for (const event of events) {
-		const key = normalizeKeyValue(event.key);
+		const key = normalizeKeyValue(event.key || event.text);
 		if (!key) continue;
 
 		if (event.event_type === 'keyup') {

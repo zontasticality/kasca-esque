@@ -1,6 +1,7 @@
 export interface KeystrokeEvent {
 	timestamp: number;
 	key: string;
+	text?: string;
 	event_type: 'keydown' | 'keyup';
 }
 
@@ -58,7 +59,8 @@ function buildStates(keystrokes: readonly KeystrokeEvent[]) {
 	const baseTime = normalized[0]?.timestamp ?? 0;
 
 	normalized.forEach((event) => {
-		const result = applyKey(text, cursor, event.key);
+		const printableKey = resolveTextInput(event);
+		const result = applyKey(text, cursor, printableKey);
 		text = result.text;
 		cursor = result.cursor;
 
@@ -125,6 +127,14 @@ function insertText(text: string, cursor: number, value: string) {
 		text: text.slice(0, cursor) + value + text.slice(cursor),
 		cursor: cursor + value.length
 	};
+}
+
+function resolveTextInput(event: KeystrokeEvent) {
+	const value = event.text;
+	if (typeof value === 'string' && value.length > 0) {
+		return value;
+	}
+	return event.key;
 }
 
 function findStateIndex(states: TimelineState[], timestamp: number) {

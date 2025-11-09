@@ -49,6 +49,7 @@ type NormalizedRecording = {
 	keystrokes: Array<{
 		timestamp: number;
 		key: string;
+		text?: string;
 		event_type: 'keydown' | 'keyup';
 	}>;
 	audio_file: string;
@@ -107,11 +108,26 @@ function normalizeKeystrokes(raw: unknown): NormalizedRecording['keystrokes'] {
 		if (!Number.isFinite(timestamp)) {
 			continue;
 		}
-	const key = coerceKey(entry.key);
+		const key = coerceKey(entry.key ?? entry.code);
+		const textValue = coerceKey(
+			entry.text ?? entry.display ?? entry.value ?? entry.character ?? entry.char
+		);
+
+		const resolvedText = resolveTextValue(key, textValue);
 		const eventTypeRaw = coerceString(entry.event_type ?? entry.type);
 		const eventType: 'keydown' | 'keyup' = eventTypeRaw === 'keyup' ? 'keyup' : 'keydown';
 
-		entries.push({ timestamp, key, event_type: eventType });
+		const normalized = {
+			timestamp,
+			key,
+			event_type: eventType
+		} as NormalizedRecording['keystrokes'][number];
+
+		if (resolvedText) {
+			normalized.text = resolvedText;
+		}
+
+		entries.push(normalized);
 	}
 
 	entries.sort((a, b) => a.timestamp - b.timestamp);
@@ -180,6 +196,46 @@ function coerceKey(value: unknown) {
 	}
 
 	return trimmed;
+}
+
+function resolveTextValue(key: string, provided?: string) {
+	if (provided !== undefined) {
+		return provided;
+	}
+
+	return deriveTextFromKey(key);
+}
+
+const TEXT_KEYWORDS = new Set([
+	'enter',
+	'backspace',
+	'delete',
+	'tab',
+	'arrowleft',
+	'arrowright',
+	'arrowup',
+	'arrowdown'
+]);
+
+function deriveTextFromKey(key: string) {
+	if (!key) {
+		return '';
+	}
+
+	if (key === ' ') {
+		return ' ';
+	}
+
+	if (key.length === 1) {
+		return key;
+	}
+
+	const normalized = key.toLowerCase();
+	if (normalized === 'space' || normalized === 'spacebar' || normalized === 'space bar') {
+		return ' ';
+	}
+
+	return TEXT_KEYWORDS.has(normalized) ? key : '';
 }
 
 function coerceNumber(value: unknown) {
