@@ -294,6 +294,8 @@ const layout: KeyRow[] = [
 
 const totalColumns = baseColumns;
 const rowCount = layout.length;
+const KEY_HEIGHT_SCALE = 1.4;
+const aspectRatio = totalColumns / (rowCount * KEY_HEIGHT_SCALE);
 
 const knownKeyValues = new Set([
 	...layout.flatMap((row) =>
@@ -339,7 +341,7 @@ function resolveKeySnapshot(
 	{#if timeline}
 		<div
 			class="keyboard-shell"
-			style={`--columns:${totalColumns}; --rows:${rowCount};`}
+			style={`--columns:${totalColumns}; --rows:${rowCount}; --aspect:${aspectRatio};`}
 		>
 			<div
 				class="keyboard-grid"
@@ -383,31 +385,26 @@ function resolveKeySnapshot(
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.5rem;
 	}
 
 	.keyboard-shell {
-		width: min(100%, 60rem);
-		position: relative;
-	}
-
-	.keyboard-shell::before {
-		content: '';
-		display: block;
-		padding-top: calc(var(--rows) / var(--columns) * 100%);
-	}
-
-	.keyboard-grid {
-		position: absolute;
-		inset: 0;
-		display: grid;
-		grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
-		grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
-		gap: clamp(0.05rem, 0.3vw, 0.2rem);
-		padding: clamp(0.3rem, 0.8vw, 0.6rem);
+		width: 100%;
+		aspect-ratio: var(--aspect);
 		border: 1px solid #003300;
 		border-radius: 0.35rem;
 		background: #020202;
+		padding: clamp(0.3rem, 0.9vw, 0.7rem);
+		box-sizing: border-box;
+		margin: 0 auto;
+	}
+
+	.keyboard-grid {
+		display: grid;
+		grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
+		grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
+		gap: clamp(0.04rem, 0.25vw, 0.15rem);
+		height: 100%;
 	}
 
 	.key {
@@ -415,12 +412,12 @@ function resolveKeySnapshot(
 		align-items: center;
 		justify-content: center;
 		border: 1px solid #003000;
-		border-radius: 0.25rem;
+		border-radius: 0.18rem;
 		background: #050505;
 		color: #00aa00;
-		font-size: clamp(0.5rem, 0.85vw, 0.7rem);
-		padding: 0.05rem;
-		line-height: 1.1;
+		font-size: clamp(0.38rem, 0.65vw, 0.55rem);
+		padding: 0.03rem;
+		line-height: 1.08;
 		text-align: center;
 	}
 
