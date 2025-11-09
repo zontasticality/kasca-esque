@@ -139,6 +139,7 @@ const NAMED_KEY_ALIASES: Record<string, string> = {
 	del: 'Delete',
 	space: 'Space',
 	spacebar: 'Space',
+	space_bar: 'Space',
 	tab: 'Tab',
 	esc: 'Escape',
 	escape: 'Escape',
@@ -158,6 +159,7 @@ const NAMED_KEY_ALIASES: Record<string, string> = {
 	up: 'ArrowUp',
 	down: 'ArrowDown',
 	capslock: 'CapsLock',
+	caps_lock: 'CapsLock',
 	numlock: 'NumLock',
 	scrolllock: 'ScrollLock',
 	pause: 'Pause',
@@ -174,9 +176,25 @@ const NAMED_KEY_ALIASES: Record<string, string> = {
 
 const MODIFIER_ALIASES: Record<string, string> = {
 	shift: 'ShiftLeft',
+	shift_l: 'ShiftLeft',
+	shiftl: 'ShiftLeft',
+	shift_r: 'ShiftRight',
+	shiftr: 'ShiftRight',
 	control: 'ControlLeft',
 	ctrl: 'ControlLeft',
+	control_l: 'ControlLeft',
+	ctrl_l: 'ControlLeft',
+	ctrll: 'ControlLeft',
+	control_r: 'ControlRight',
+	ctrl_r: 'ControlRight',
+	ctrlr: 'ControlRight',
 	alt: 'AltLeft',
+	alt_l: 'AltLeft',
+	altl: 'AltLeft',
+	alt_r: 'AltRight',
+	altr: 'AltRight',
+	altgr: 'AltRight',
+	alt_gr: 'AltRight',
 	option: 'AltLeft',
 	meta: 'MetaLeft',
 	command: 'MetaLeft',
@@ -184,6 +202,11 @@ const MODIFIER_ALIASES: Record<string, string> = {
 	os: 'MetaLeft',
 	win: 'MetaLeft',
 	super: 'MetaLeft'
+};
+
+const CONTROL_CHAR_OVERRIDES: Record<string, string> = {
+	'\u0003': 'KeyC', // Ctrl+C
+	'\u0016': 'KeyV' // Ctrl+V
 };
 
 const CHARACTER_TO_CODE: Record<string, string> = {
@@ -222,6 +245,10 @@ export function isEventCode(value: string | null | undefined): value is string {
 export function keyLikeToCode(inputValue: string | null | undefined): string | null {
 	if (typeof inputValue !== 'string') {
 		return null;
+	}
+
+	if (inputValue in CONTROL_CHAR_OVERRIDES) {
+		return CONTROL_CHAR_OVERRIDES[inputValue];
 	}
 
 	if (inputValue === ' ') {

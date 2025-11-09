@@ -13,9 +13,21 @@ async function main() {
 	const recordingsDir = path.resolve(process.cwd(), 'recordings');
 	const entries = await fs.readdir(recordingsDir);
 
-	const targets = entries.filter(
-		(file) => file.endsWith('.json') && !file.toLowerCase().includes('qt')
-	);
+	const includeQt = process.argv.includes('--include-qt');
+	const onlyQt = process.argv.includes('--only-qt');
+
+	const targets = entries
+		.filter((file) => file.endsWith('.json'))
+		.filter((file) => {
+			const isQt = file.toLowerCase().includes('qt');
+			if (onlyQt) {
+				return isQt;
+			}
+			if (!includeQt && isQt) {
+				return false;
+			}
+			return true;
+		});
 
 	if (targets.length === 0) {
 		console.log('No recordings to migrate.');

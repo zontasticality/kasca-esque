@@ -17,23 +17,23 @@ export function buildKeyTimeline(keystrokes: readonly KeystrokeEvent[]) {
 
 	const baseTime = events[0]?.timestamp ?? 0;
 	const states: StoredState[] = [];
-	const pressed = new Set<string>();
+		const pressed = new Set<string>();
 
 		for (const event of events) {
 			const key = normalizeKeyValue(event.key);
 			if (!key) continue;
 
-		if (event.event_type === 'keyup') {
-			pressed.delete(key);
-		} else {
-			pressed.add(key);
-		}
+			if (event.event_type === 'keyup') {
+				pressed.delete(key);
+			} else {
+				pressed.add(key);
+			}
 
-		const last = states[states.length - 1];
-		if (!last || !setEqualsArray(pressed, last.pressed)) {
-			states.push({ time: event.timestamp - baseTime, pressed: Array.from(pressed) });
+			const last = states[states.length - 1];
+			if (!last || !setEqualsArray(pressed, last.pressed)) {
+				states.push({ time: event.timestamp - baseTime, pressed: Array.from(pressed) });
+			}
 		}
-	}
 
 	return {
 		baseTime,
