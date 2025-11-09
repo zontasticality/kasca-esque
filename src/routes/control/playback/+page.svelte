@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import RecordingTextState from "$lib/components/RecordingTextState.svelte";
+	import KeyboardState from "$lib/components/KeyboardState.svelte";
 
 	interface Recording {
 		filename: string;
@@ -378,10 +379,16 @@
 						</div>
 					</div>
 
-					<RecordingTextState
-						recording={selectedRecording}
-						{currentTime}
-					/>
+					<div class="state-panels">
+						<RecordingTextState
+							recording={selectedRecording}
+							{currentTime}
+						/>
+						<KeyboardState
+							recording={selectedRecording}
+							{currentTime}
+						/>
+					</div>
 				</div>
 			{:else}
 				<div class="no-selection">
@@ -686,6 +693,13 @@
 	.time-display {
 		color: #00aa00;
 		font-size: 0.875rem;
+	}
+
+	.state-panels {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		margin-top: 1.25rem;
 	}
 
 	audio {
