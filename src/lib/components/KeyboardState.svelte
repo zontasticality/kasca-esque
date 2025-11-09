@@ -188,20 +188,25 @@
 <div class="keyboard-state">
 	{#if timeline}
 		<div
-			class="keyboard-grid"
+			class="keyboard-shell"
 			style={`--columns:${totalColumns}; --rows:${rowCount};`}
 		>
-			{#each layout as row (row.row)}
-				{#each row.keys as key (`${row.row}-${key.label}-${key.width}`)}
-					<span
-						class="key"
-						class:pressed={isPressed(key.label)}
-						style={`grid-column: span ${key.width}; grid-row: ${row.row};`}
-					>
-						{key.label === ' ' ? 'Space' : key.label}
-					</span>
+			<div
+				class="keyboard-grid"
+				style={`--columns:${totalColumns}; --rows:${rowCount};`}
+			>
+				{#each layout as row (row.row)}
+					{#each row.keys as key (`${row.row}-${key.label}-${key.width}`)}
+						<span
+							class="key"
+							class:pressed={isPressed(key.label)}
+							style={`grid-column: span ${key.width}; grid-row: ${row.row};`}
+						>
+							{key.label === ' ' ? 'Space' : key.label}
+						</span>
+					{/each}
 				{/each}
-			{/each}
+			</div>
 		</div>
 	{:else}
 		<p class="keyboard-empty">No key data</p>
@@ -211,19 +216,29 @@
 <style>
 	.keyboard-state {
 		width: 100%;
-		max-width: 48rem;
-		align-self: center;
+		display: flex;
+		justify-content: center;
+	}
+
+	.keyboard-shell {
+		width: min(100%, 60rem);
+		position: relative;
+	}
+
+	.keyboard-shell::before {
+		content: '';
+		display: block;
+		padding-top: calc(var(--rows) / var(--columns) * 100%);
 	}
 
 	.keyboard-grid {
-		position: relative;
-		width: 100%;
-		aspect-ratio: calc(var(--columns) / (var(--rows) * 1.05));
+		position: absolute;
+		inset: 0;
 		display: grid;
 		grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
 		grid-template-rows: repeat(var(--rows), 1fr);
-		gap: clamp(0.2rem, 1vw, 0.4rem);
-		padding: clamp(0.4rem, 1.5vw, 0.75rem);
+		gap: clamp(0.15rem, 0.6vw, 0.35rem);
+		padding: clamp(0.4rem, 1vw, 0.8rem);
 		border: 1px solid #003300;
 		border-radius: 0.5rem;
 		background: #020202;
