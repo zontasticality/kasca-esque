@@ -40,7 +40,7 @@ KEY_CODES = [
 ```
 
 ## Directory Layout & Modal Storage
-- Mount `modal.Volume.persisted("kasca-data", use_blob_storage=True)` at `/vol/kasca-data`. All scripts treat this as the root for durable assets.
+- Mount `modal.Volume.from_name("kasca-data", create_if_missing=True)` at `/vol/kasca-data`. All scripts treat this as the root for durable assets.
 - Required subfolders (auto-created on startup if missing):
   - `/vol/kasca-data/recordings` — mirrored `.webm` audio and `.json` key logs.
   - `/vol/kasca-data/manifests` — manifests plus `split_map.json` (filename → split) and `manifest.meta.json` (hash + schema version).
@@ -69,19 +69,19 @@ base_image = (
         "transformers==4.44.0",
         "accelerate==0.33.0",
         "peft==0.12.0",
-        "tokenizers==0.15.2",
+        "tokenizers==0.19.1",
         "evaluate==0.4.2",
         "wandb==0.16.6",
         "torchcodec==0.8.0",
     )
 )
 
-kasca_volume = modal.Volume.persisted("kasca-data", use_blob_storage=True)
+kasca_volume = modal.Volume.from_name("kasca-data", create_if_missing=True)
 wandb_secret = modal.Secret.from_name("wandb-secret")
 ```
 - After building the image once, push it to a tagged registry (`whisper-eventcode:2024-05-17`) and reference by digest in all Modal functions to keep retrains reproducible until dependencies are intentionally bumped.
 - `sync_recordings` and `prepare_dataset` run CPU-only.
-- `train_eventcode_model` uses `gpu=modal.gpu.A100()` with `allow_concurrent_inputs=1`, `timeout=12*60*60`, and `enable_memory_snapshot=True` for fast cold-start recovery. Multi-GPU is intentionally deferred because LoRA keeps per-step memory <20 GB and the dataset is <10 h; DDP overhead would outweigh gains until we scale data or unfreeze the full encoder.
+- `train_eventcode_model` uses `gpu="A100-40GB"` with `timeout=12*60*60` for fast cold-start recovery. Multi-GPU is intentionally deferred because LoRA keeps per-step memory <20 GB and the dataset is <10 h; DDP overhead would outweigh gains until we scale data or unfreeze the full encoder.
 - `decode_recording_fn` is exposed via `@app.webhook("decode")` or `@app.function` for CLI use; it operates on CPU but reads the latest checkpoint.
 
 ## Synchronization & Partitioning
@@ -168,6 +168,6 @@ If `token_accuracy_test` drops by more than 5% compared to the previous evaluati
 - Loads the `best` checkpoint, runs `decode_recording`, and responds with both predicted tokens and the ground-truth sequence (if available) plus any mismatches.
 
 ## Automation Hooks
-- `sync_recordings` is decorated with `@app.function(schedule=modal.Periodic("15m"), retries=3)` to keep data fresh.
+- `sync_recordings` is decorated with `@app.function(schedule=modal.Period(minutes=15), retries=3)` to keep data fresh.
 - `prepare_dataset` can be exposed as `modal.Cron` or CLI to rebuild manifests/tokenizer/tokens; it validates that `len(tokens/train)` equals the number of manifest rows assigned to train.
 - `train_eventcode_model` expects `prepare_dataset` to have run successfully; it asserts caches exist before launching training.

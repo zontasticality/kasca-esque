@@ -28,16 +28,16 @@ Directory contract inside the Modal volume:
 
 ## Modal Infrastructure
 ### Base Image
-- Build a pinned Modal image from `modal.Image.debian_slim(python_version="3.12")` with `apt_install("ffmpeg")` and `uv_pip_install` of exact versions: `torch==2.9.0`, `torchaudio==2.9.0`, `transformers==4.44.0`, `accelerate==0.33.0`, `peft==0.12.0`, `tokenizers==0.15.2`, `datasets[audio]==2.19.0`, `evaluate==0.4.2`, `librosa==0.10.1`, `soundfile==0.12.1`, `wandb==0.16.6`, `torchcodec==0.8.0`. Publish the resulting image digest and reference it via `image=modal.Image.from_registry(...)` so retrains reuse the same stack until we intentionally bump versions.
+- Build a pinned Modal image from `modal.Image.debian_slim(python_version="3.12")` with `apt_install("ffmpeg")` and `uv_pip_install` of exact versions: `torch==2.9.0`, `torchaudio==2.9.0`, `transformers==4.44.0`, `accelerate==0.33.0`, `peft==0.12.0`, `tokenizers==0.19.1`, `datasets[audio]==2.19.0`, `evaluate==0.4.2`, `librosa==0.10.1`, `soundfile==0.12.1`, `wandb==0.16.6`, `torchcodec==0.8.0`. Publish the resulting image digest and reference it via `image=modal.Image.from_registry(...)` so retrains reuse the same stack until we intentionally bump versions.
 
 ### Volumes & Secrets
-- Mount `modal.Volume.persisted("kasca-data", use_blob_storage=True)` at `/vol/kasca-data` for all long-lived assets.
+- Mount `modal.Volume.from_name("kasca-data", create_if_missing=True)` at `/vol/kasca-data` for all long-lived assets.
 - Require `modal.Secret.from_name("wandb-secret")` to inject `WANDB_API_KEY`; fail fast if the secret is absent.
 
 ### Functions, Scheduling & Cold Start
-- `sync_recordings` runs on a CPU worker (`modal.Function(gpu=None, schedule=modal.Periodic("15m"))`) and commits the volume after every successful sync so training jobs always see fresh files.
+- `sync_recordings` runs on a CPU worker (`modal.Function(gpu=None, schedule=modal.Period(minutes=15))`) and commits the volume after every successful sync so training jobs always see fresh files.
 - `prepare_dataset` (manual trigger) rebuilds manifests, tokenizer, and cached tensors after new recordings arrive; it aborts if feature/tokens directories and manifests are out of sync.
-- `train_eventcode_model` executes on a single `modal.gpu.A100-40GB` with `allow_concurrent_inputs=1`, `timeout=12 * 60 * 60`, and `gpu_config.enable_memory_snapshot=True` to keep cold starts under 20s. Multi-GPU training is deliberately avoided for now because the dataset is small (<10 h) and LoRA keeps per-step memory <20 GB; scaling out would add DDP overhead without tangible wall-clock benefit until we exceed ~30 h or switch to full-model finetunes.
+- `train_eventcode_model` executes on a single `gpu="A100-40GB"` worker with `timeout=12 * 60 * 60` to keep cold starts under 20s. Multi-GPU training is deliberately avoided for now because the dataset is small (<10 h) and LoRA keeps per-step memory <20 GB; scaling out would add DDP overhead without tangible wall-clock benefit until we exceed ~30 h or switch to full-model finetunes.
 - `decode_recording_fn` provides an interactive endpoint (no GPU) for smoke tests using the latest checkpoint + tokenizer.
 
 ## Dataset Preparation & Precomputation

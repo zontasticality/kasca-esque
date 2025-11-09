@@ -40,6 +40,13 @@ def _remove_absent(local_files: Iterable[Path], expected_names: set[str]) -> Lis
     return removed
 
 
+def _build_remote_path(rel: str) -> str:
+    clean = rel.lstrip("/")
+    if not clean.startswith("recordings/"):
+        clean = f"recordings/{clean}"
+    return clean
+
+
 def sync_recordings(
     base_url: str,
     recordings_dir: Path,
@@ -63,13 +70,15 @@ def sync_recordings(
         if not audio or not keylog:
             continue
         for rel in (audio, keylog):
-            expected_files.add(rel)
-            target_path = recordings_dir / rel
+            local_name = Path(rel).name
+            expected_files.add(local_name)
+            target_path = recordings_dir / local_name
             if target_path.exists():
                 continue
-            source_url = f"{base_url.rstrip('/')}/{rel}"
+            remote_rel = _build_remote_path(rel)
+            source_url = f"{base_url.rstrip('/')}/{remote_rel}"
             _download_file(source_url, target_path)
-            downloaded.append(rel)
+            downloaded.append(local_name)
 
     removed = _remove_absent(recordings_dir.glob("*"), expected_files)
     listing_bytes = json.dumps(listing, sort_keys=True).encode("utf-8")

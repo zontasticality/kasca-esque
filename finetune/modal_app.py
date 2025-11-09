@@ -26,14 +26,14 @@ BASE_IMAGE = (
         "transformers==4.44.0",
         "accelerate==0.33.0",
         "peft==0.12.0",
-        "tokenizers==0.15.2",
+        "tokenizers==0.19.1",
         "evaluate==0.4.2",
         "wandb==0.16.6",
         "torchcodec==0.8.0",
     )
 )
 
-KASCA_VOLUME = modal.Volume.persisted("kasca-data", use_blob_storage=True)
+KASCA_VOLUME = modal.Volume.from_name("kasca-data", create_if_missing=True)
 WANDB_SECRET = modal.Secret.from_name("wandb-secret")
 
 
@@ -45,7 +45,7 @@ def _iter_manifest_rows(path: Path):
 
 @app.function(
     image=BASE_IMAGE,
-    schedule=modal.Periodic("15m"),
+    schedule=modal.Period(minutes=15),
     volumes={"/vol/kasca-data": KASCA_VOLUME},
 )
 def sync_recordings_fn(base_url: str | None = None):
@@ -63,6 +63,8 @@ def sync_recordings_fn(base_url: str | None = None):
 def prepare_dataset():
     config = get_config()
     records_dir = config.volume_layout.recordings
+    if not any(records_dir.glob("*.json")):
+        raise RuntimeError(f"No recordings found in {records_dir}. Run sync_recordings_fn first or check the volume mount.")
     manifests.build_manifests(
         records_dir,
         config.volume_layout.manifests,
@@ -81,9 +83,8 @@ def prepare_dataset():
 
 @app.function(
     image=BASE_IMAGE,
-    gpu=modal.gpu.A100(),
+    gpu="A100-40GB",
     timeout=12 * 60 * 60,
-    allow_concurrent_inputs=1,
     volumes={"/vol/kasca-data": KASCA_VOLUME},
     secrets=[WANDB_SECRET],
 )
