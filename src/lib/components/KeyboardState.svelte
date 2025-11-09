@@ -84,33 +84,39 @@ function createSpacer(width: number, rowSpan?: number): SpacerCell {
 	return { kind: "spacer", width, rowSpan };
 }
 
+function rowCells(
+	...cells: Array<KeyCell | SpacerCell | Array<KeyCell | SpacerCell>>
+): Array<KeyCell | SpacerCell> {
+	return cells.flat();
+}
+
 const mainKeyboardRows: Array<{ cells: Array<KeyCell | SpacerCell> }> = [
 	{
-		cells: [
+		cells: rowCells(
 			createKey("Escape", { label: "Esc", width: 2 }),
 			createSpacer(4),
-			...[
+			[
 				"F1",
 				"F2",
 				"F3",
 				"F4"
 			].map((label) => createKey(label, { width: 2 })),
 			createSpacer(1),
-			...["F5", "F6", "F7", "F8"].map((label) => createKey(label, { width: 2 })),
+			["F5", "F6", "F7", "F8"].map((label) => createKey(label, { width: 2 })),
 			createSpacer(1),
-			...["F9", "F10", "F11", "F12"].map((label) => createKey(label, { width: 2 })),
+			["F9", "F10", "F11", "F12"].map((label) => createKey(label, { width: 2 })),
 			createSpacer(2),
 			createKey("PrintScreen", { label: "PrtSc", width: 2, classes: ["nav"] }),
 			createKey("ScrollLock", { label: "ScrLk", width: 2, classes: ["nav"] }),
 			createKey("Pause", { label: "Pause", width: 2, classes: ["nav"] }),
 			createSpacer(2),
 			createSpacer(8)
-		].flat()
+		)
 	},
 	{
-		cells: [
+		cells: rowCells(
 			createKey("Backquote", { label: "`", width: 2 }),
-			...[
+			[
 				"Digit1",
 				"Digit2",
 				"Digit3",
@@ -134,12 +140,12 @@ const mainKeyboardRows: Array<{ cells: Array<KeyCell | SpacerCell> }> = [
 			createKey("NumpadDivide", { label: "/", width: 2, classes: ["numpad"] }),
 			createKey("NumpadMultiply", { label: "*", width: 2, classes: ["numpad"] }),
 			createKey("NumpadSubtract", { label: "-", width: 2, classes: ["numpad"] })
-		].flat()
+		)
 	},
 	{
-		cells: [
+		cells: rowCells(
 			createKey("Tab", { label: "Tab", width: 4 }),
-			...[
+			[
 				"KeyQ",
 				"KeyW",
 				"KeyE",
@@ -163,12 +169,12 @@ const mainKeyboardRows: Array<{ cells: Array<KeyCell | SpacerCell> }> = [
 			createKey("Numpad8", { label: "8", width: 2, classes: ["numpad"] }),
 			createKey("Numpad9", { label: "9", width: 2, classes: ["numpad"] }),
 			createKey("NumpadAdd", { label: "+", width: 2, rowSpan: 2, classes: ["numpad"] })
-		].flat()
+		)
 	},
 	{
-		cells: [
+		cells: rowCells(
 			createKey("CapsLock", { label: "Caps", width: 4 }),
-			...[
+			[
 				"KeyA",
 				"KeyS",
 				"KeyD",
@@ -182,18 +188,18 @@ const mainKeyboardRows: Array<{ cells: Array<KeyCell | SpacerCell> }> = [
 			createKey("Semicolon", { label: ";", width: 2 }),
 			createKey("Quote", { label: "'", width: 2 }),
 			createKey("Enter", { label: "Enter", width: 4 }),
-			createSpacer(2),
+			createSpacer(4),
 			createSpacer(6),
 			createSpacer(2),
 			createKey("Numpad4", { label: "4", width: 2, classes: ["numpad"] }),
 			createKey("Numpad5", { label: "5", width: 2, classes: ["numpad"] }),
 			createKey("Numpad6", { label: "6", width: 2, classes: ["numpad"] })
-		].flat()
+		)
 	},
 	{
-		cells: [
+		cells: rowCells(
 			createKey("ShiftLeft", { label: "Shift", width: 5 }),
-			...[
+			[
 				"KeyZ",
 				"KeyX",
 				"KeyC",
@@ -215,10 +221,10 @@ const mainKeyboardRows: Array<{ cells: Array<KeyCell | SpacerCell> }> = [
 			createKey("Numpad2", { label: "2", width: 2, classes: ["numpad"] }),
 			createKey("Numpad3", { label: "3", width: 2, classes: ["numpad"] }),
 			createKey("NumpadEnter", { label: "Enter", width: 2, rowSpan: 2, classes: ["numpad"] })
-		].flat()
+		)
 	},
 	{
-		cells: [
+		cells: rowCells(
 			createKey("ControlLeft", { label: "Ctrl", width: 3 }),
 			createKey("MetaLeft", { label: "Meta", width: 3 }),
 			createKey("AltLeft", { label: "Alt", width: 3 }),
@@ -234,7 +240,7 @@ const mainKeyboardRows: Array<{ cells: Array<KeyCell | SpacerCell> }> = [
 			createSpacer(2),
 			createKey("Numpad0", { label: "0", width: 4, classes: ["numpad"] }),
 			createKey("NumpadDecimal", { label: ".", width: 2, classes: ["numpad"] })
-		].flat()
+		)
 	}
 ];
 
@@ -294,7 +300,7 @@ const layout: KeyRow[] = [
 
 const totalColumns = baseColumns;
 const rowCount = layout.length;
-const KEY_HEIGHT_SCALE = 1.4;
+const KEY_HEIGHT_SCALE = 5;
 const aspectRatio = totalColumns / (rowCount * KEY_HEIGHT_SCALE);
 
 const knownKeyValues = new Set([

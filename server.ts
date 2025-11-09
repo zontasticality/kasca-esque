@@ -36,7 +36,9 @@ app.use(handler);
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
 	console.log(`Server running on http://localhost:${port}`);
-	console.log(`WebSocket endpoints:`);
-	console.log(`  - ws://localhost:${port}/ws/keyboard`);
-	console.log(`  - ws://localhost:${port}/ws/control`);
+	console.log(`Endpoints:`);
+	console.log(`  - https://localhost:${port}/keyboard`);
+	console.log(`  - https://localhost:${port}/control`);
+	console.log(`  - https://localhost:${port}/control/playback`);
+	console.log(`  - https://localhost:${port}/recordings`);
 });
