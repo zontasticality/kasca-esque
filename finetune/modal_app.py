@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import modal
-from transformers import WhisperFeatureExtractor
+from transformers import WhisperConfig, WhisperFeatureExtractor
 
 from . import inference, manifests, sync_io, tokenizer_utils, training
 from .config import get_config
@@ -51,7 +51,9 @@ def _iter_manifest_rows(path: Path):
 def sync_recordings_fn(base_url: str | None = None):
     config = get_config()
     url = base_url or config.base_url
-    summary = sync_io.sync_recordings(url, config.volume_layout.recordings, volume=KASCA_VOLUME)
+    summary = sync_io.sync_recordings(
+        url, config.volume_layout.recordings, volume=KASCA_VOLUME
+    )
     return summary
 
 
@@ -64,20 +66,33 @@ def prepare_dataset():
     config = get_config()
     records_dir = config.volume_layout.recordings
     if not any(records_dir.glob("*.json")):
-        raise RuntimeError(f"No recordings found in {records_dir}. Run sync_recordings_fn first or check the volume mount.")
+        raise RuntimeError(
+            f"No recordings found in {records_dir}. Run sync_recordings_fn first or check the volume mount."
+        )
     manifests.build_manifests(
         records_dir,
         config.volume_layout.manifests,
         train_ratio=config.hyperparams.train_ratio,
         schema_version=config.manifest_schema_version,
     )
-    codes = tokenizer_utils.collect_event_codes(records_dir)
-    tokenizer = tokenizer_utils.materialize_tokenizer(codes, config.volume_layout.tokenizer)
-    feature_extractor = WhisperFeatureExtractor.from_pretrained(config.hyperparams.base_model)
+    tokenizer = tokenizer_utils.materialize_tokenizer(
+        tokenizer_utils.KEY_CODES, config.volume_layout.tokenizer
+    )
+    feature_extractor = WhisperFeatureExtractor.from_pretrained(
+        config.hyperparams.base_model
+    )
+    whisper_config = WhisperConfig.from_pretrained(config.hyperparams.base_model)
+    max_target_positions = whisper_config.max_target_positions
     for manifest_name in ("train.jsonl", "eval.jsonl"):
         manifest_path = config.volume_layout.manifests / manifest_name
         for row in _iter_manifest_rows(manifest_path):
-            precompute_example_features(row, config.volume_layout.tokens, feature_extractor, tokenizer)
+            precompute_example_features(
+                row,
+                config.volume_layout.tokens,
+                feature_extractor,
+                tokenizer,
+                max_label_length=max_target_positions,
+            )
     KASCA_VOLUME.commit()
 
 

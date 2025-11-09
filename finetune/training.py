@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 from typing import List, Optional
 
@@ -15,6 +16,7 @@ from transformers import (
     TrainerCallback,
     TrainerControl,
     TrainerState,
+    WhisperConfig,
     WhisperFeatureExtractor,
 )
 
@@ -82,18 +84,31 @@ def _load_manifest_rows(manifest_path: Path) -> List[dict]:
     return rows
 
 
-def _ensure_feature_caches(rows: List[dict], tokens_dir: Path, tokenizer: PreTrainedTokenizerFast, base_model: str) -> None:
+def _ensure_feature_caches(
+    rows: List[dict],
+    tokens_dir: Path,
+    tokenizer: PreTrainedTokenizerFast,
+    base_model: str,
+) -> None:
     feature_extractor = WhisperFeatureExtractor.from_pretrained(base_model)
+    max_target_positions = WhisperConfig.from_pretrained(base_model).max_target_positions
     for row in rows:
         split = row["split"]
         stem = Path(row["audio_rel_path"]).stem
         cache_path = tokens_dir / split / f"{stem}.pt"
         if cache_path.exists():
             continue
-        precompute_example_features(row, tokens_dir, feature_extractor, tokenizer)
+        precompute_example_features(
+            row,
+            tokens_dir,
+            feature_extractor,
+            tokenizer,
+            max_label_length=max_target_positions,
+        )
 
 
 def _apply_lora(model, hyper: TrainingHyperparams):
+    _ensure_whisper_forward_signature(model)
     lora_cfg = LoraConfig(
         task_type=TaskType.SEQ_2_SEQ_LM,
         r=hyper.lora_rank,
@@ -103,6 +118,42 @@ def _apply_lora(model, hyper: TrainingHyperparams):
         target_modules=["q_proj", "k_proj", "v_proj", "out_proj"],
     )
     return get_peft_model(model, lora_cfg)
+
+
+def _ensure_whisper_forward_signature(model):
+    if getattr(model, "_kasca_accepts_input_ids", False):
+        return
+    original_forward = model.forward
+
+    @wraps(original_forward)
+    def wrapped_forward(*args, **kwargs):
+        kwargs.pop("input_ids", None)
+        kwargs.pop("inputs_embeds", None)
+        return original_forward(*args, **kwargs)
+
+    model.forward = wrapped_forward
+    setattr(model, "_kasca_accepts_input_ids", True)
+
+
+def _log_dataset_label_stats(name: str, dataset: CachedFeatureDataset):
+    if len(dataset) == 0:
+        print(f"[dataset:{name}] empty dataset")
+        return
+    label_mins = []
+    label_maxes = []
+    lengths = []
+    sample_count = min(16, len(dataset))
+    for idx in range(sample_count):
+        example = dataset[idx]
+        labels = example["labels"]
+        label_mins.append(int(labels.min()))
+        label_maxes.append(int(labels.max()))
+        lengths.append(int(labels.shape[-1]))
+    print(
+        f"[dataset:{name}] samples={sample_count} "
+        f"label_min={min(label_mins)} label_max={max(label_maxes)} "
+        f"seq_len_min={min(lengths)} seq_len_max={max(lengths)}"
+    )
 
 
 def train_eventcode_model(config: Optional[AppConfig] = None):
@@ -124,6 +175,8 @@ def train_eventcode_model(config: Optional[AppConfig] = None):
 
     train_dataset = CachedFeatureDataset(app_config.tokens_base, "train")
     eval_dataset = CachedFeatureDataset(app_config.tokens_base, "test")
+    _log_dataset_label_stats("train", train_dataset)
+    _log_dataset_label_stats("eval", eval_dataset)
 
     model, resume_checkpoint = checkpoints.load_or_download_checkpoint(app_config.checkpoints_base, hyper.base_model)
     model = _apply_lora(model, hyper)
@@ -164,11 +217,16 @@ def train_eventcode_model(config: Optional[AppConfig] = None):
     trainer.train(resume_from_checkpoint=str(resume_checkpoint) if resume_checkpoint else None)
 
     final_tag = f"step-{trainer.state.global_step:06d}"
+    trainer_state = (
+        trainer.state.to_dict()
+        if hasattr(trainer.state, "to_dict")
+        else dict(trainer.state.__dict__)
+    )
     checkpoint_state = {
         "model": model,
         "optimizer": trainer.optimizer,
         "scheduler": trainer.lr_scheduler,
-        "trainer_state": trainer.state.to_dict(),
+        "trainer_state": trainer_state,
     }
     checkpoints.save_checkpoint(checkpoint_state, app_config.checkpoints_base, final_tag)
     return trainer

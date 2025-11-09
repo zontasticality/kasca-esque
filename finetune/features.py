@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Mapping, MutableMapping, Sequence
+from typing import Dict, Mapping, MutableMapping, Optional, Sequence
 
 import librosa
 import numpy as np
@@ -27,7 +27,10 @@ def events_to_text(manifest_row: Mapping[str, object], vocab: Mapping[str, int])
 
 
 def _load_audio_16k(audio_path: Path) -> np.ndarray:
-    audio, sr = sf.read(audio_path)
+    try:
+        audio, sr = sf.read(audio_path)
+    except Exception:
+        audio, sr = librosa.load(audio_path, sr=None)
     if audio.ndim > 1:
         audio = np.mean(audio, axis=1)
     if sr != 16000:
@@ -50,6 +53,7 @@ def precompute_example_features(
     tokens_dir: Path,
     feature_extractor: WhisperFeatureExtractor,
     tokenizer: PreTrainedTokenizerBase,
+    max_label_length: Optional[int] = None,
 ) -> Path:
     """Materialize mel features + decoder labels for a single manifest row."""
     split = manifest_row["split"]
@@ -70,7 +74,10 @@ def precompute_example_features(
         return_tensors="pt",
     )
     text = events_to_text(manifest_row, tokenizer.get_vocab())
-    labels = tokenizer(text, return_tensors="pt").input_ids.squeeze(0)
+    tokenizer_kwargs = {"return_tensors": "pt"}
+    if max_label_length is not None:
+        tokenizer_kwargs.update({"truncation": True, "max_length": max_label_length})
+    labels = tokenizer(text, **tokenizer_kwargs).input_ids.squeeze(0)
 
     payload = {
         "input_features": feat.input_features.squeeze(0),
