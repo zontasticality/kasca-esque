@@ -1,6 +1,4 @@
-
-
-== Javascript Keyboard Event Codes
+## Javascript Keyboard Event Codes
 
 ```python
 KEY_CODES = [
@@ -41,55 +39,124 @@ KEY_CODES = [
 ]
 ```
 
-== Data Synchronization and Partitioning
+## Directory Layout & Modal Storage
+- Mount `modal.Volume.persisted("kasca-data", use_blob_storage=True)` at `/vol/kasca-data`. All scripts treat this as the root for durable assets.
+- Required subfolders (auto-created on startup if missing):
+  - `/vol/kasca-data/recordings` — mirrored `.webm` audio and `.json` key logs.
+  - `/vol/kasca-data/manifests` — manifests plus `split_map.json` (filename → split) and `manifest.meta.json` (hash + schema version).
+  - `/vol/kasca-data/tokens/train|test` — feature caches; each example stores `input_features.pt`, `labels.pt`, `attention_mask.pt`, and `<stem>.meta.json`.
+  - `/vol/kasca-data/checkpoints` — `latest/`, `best/`, and timestamped folders such as `step-05000/` with model + optimizer + scheduler states.
+  - `/vol/kasca-data/tokenizer` — artifacts from `materialize_tokenizer`.
+- After each mutation (sync, manifest build, checkpoint save) call `kasca_volume.commit()` so other Modal functions pick up the changes without manual intervention.
 
-`sync_recordings(base_url: str, cache_dir: Path) -> Path`
-- Issues a JSON request to `<base_url>/recordings`, expecting each entry to expose `audio` and `keylog` filenames.
-- Streams any missing files into `cache_dir` (chunk size 64 KiB) and deletes local artifacts whose names are no longer advertised, keeping the cache identical to production.
-- Returns the resolved cache path so downstream steps (manifest building, token caching) can rely on a single canonical directory.
+## Modal Image & App Skeleton
+```python
+import modal
 
-`hash_partition(recording_name: str, train_ratio: float = 0.9) -> str`
-- Normalizes the provided filename (lowercase stem, no extension), hashes it with `hashlib.blake2s(digest_size=16)` for deterministic ordering, and compares the hash’s hex value against the global percentile cut.
-- Returns the literal string `"train"` when the hash rank is below `train_ratio`, `"test"` otherwise; the mapping is stable across machines and avoids randomness.
+app = modal.App("whisper-eventcode")
 
-== Manifest and Vocabulary Builders
+base_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install("ffmpeg")
+    .uv_pip_install(
+        "numpy", "requests", "soundfile", "librosa",
+        "datasets[audio]>=2.19.0", "torch==2.9.0", "torchaudio==2.9.0",
+        "transformers>=4.44.0", "accelerate>=0.33.0", "peft>=0.12.0",
+        "tokenizers>=0.15.0", "evaluate", "wandb", "torchcodec==0.8.*",
+    )
+)
 
-`build_manifests(recordings_dir: Path, manifest_dir: Path) -> Tuple[Path, Path]`
-- Walks every `*.json` under `recordings_dir`, ensures a sibling `.webm` exists, and loads its keystrokes/events array.
-- Re-bases timestamps so the first event starts at `time = 0.0`, encodes event types as `{code, type}` where `type ∈ {"down", "up"}`, and attaches the hashed split from `hash_partition`.
-- Writes newline-delimited JSON into `train.jsonl` / `eval.jsonl`, preserving on-disk `audio` paths so later stages can resolve files without additional lookup.
+kasca_volume = modal.Volume.persisted("kasca-data", use_blob_storage=True)
+wandb_secret = modal.Secret.from_name("wandb-secret")
+```
+- `sync_recordings` and `prepare_dataset` run CPU-only.
+- `train_eventcode_model` uses `gpu=modal.gpu.A100()` with `allow_concurrent_inputs=1`, `timeout=12*60*60`, and `enable_memory_snapshot=True` for fast cold-start recovery.
+- `decode_recording_fn` is exposed via `@app.webhook("decode")` or `@app.function` for CLI use; it operates on CPU but reads the latest checkpoint.
 
-`collect_event_codes(recordings_dir: Path) -> List[str]`
-- Scans every cached key log, accumulating distinct `KeyboardEvent.code` values and sorting them alphanumerically.
-- Raises `RuntimeError` when the cache contains zero recognizable codes to fail fast before tokenizer creation.
+## Synchronization & Partitioning
+`sync_recordings(base_url, kasca_volume, cache_subdir="recordings")`
+- Issue `GET {base_url}/recordings` with 30s timeout.
+- Expect each row to contain `audio` and `keylog` filenames; download missing files via streaming chunks (`chunk_size = 1 << 16`).
+- Remove local files absent from the remote listing to keep the cache authoritative.
+- At the end, write `sync.meta.json` summarizing timestamp, remote count, and sha256 of the listing, then call `kasca_volume.commit()`.
 
-`add_audio_path(example: dict, data_root: Path) -> dict`
-- Accepts a manifest row, ensures the referenced `.webm` lives under `data_root`, and falls back to a `_DELETED.webm` variant when the original is soft-deleted.
-- Mutates the row by inserting an absolute `audio` key so Hugging Face’s `Audio` feature can lazily decode and resample during dataset mapping.
+`hash_partition(recording_name, train_ratio=0.9)`
+- Normalize to lowercase stem, generate `blake2s(digest_size=16)`, and map to train/test by comparing against the quantile derived from the sorted unique hashes.
+- Persist the computed map to `manifests/split_map.json` so later reruns never re-hash existing files.
 
-== Tokenization and Feature Caching
+`build_manifests(recordings_dir, manifest_dir)`
+- Iterate over every `*.json` with a sibling `.webm`.
+- Normalize timestamps relative to the first keystroke; store for each event `{time: float seconds, code: str, type: "down"|"up"}`.
+- Attach metadata: `split`, `recording_sha256`, `duration`, `num_events`, `audio_rel_path`.
+- Write newline-delimited JSON to `train.jsonl` and `eval.jsonl`, followed by `manifest.meta.json` containing dataset counts, schema version, and the git commit SHA that produced it.
 
-`events_to_text(example: dict, vocab: Mapping[str, int]) -> dict`
-- Sorts each example’s events chronologically, expands them into `"{code}_DOWN"` / `"{code}_UP"` tokens, and replaces unknown codes with `<unk>` before joining into a single space-delimited label string.
-- Stores the serialized labels under `labels_text` while leaving the original structured events intact for potential visualization/debug passes.
+## Tokenizer & Vocabulary
+`collect_event_codes(recordings_dir)`
+- Load every key log and accumulate unique codes; error if none are discovered.
 
-`precompute_example_features(example: dict, tokens_dir: Path, feature_extractor, tokenizer) -> None`
-- Ensures there is a split-specific folder such as `tokens/train` or `tokens/test`, keyed off the example’s deterministic split assignment.
-- Runs `feature_extractor(..., return_tensors="pt")` on the raw audio array to get mel spectrograms, tokenizes `labels_text` with BOS/EOS markers, and saves both tensors via `torch.save` using the recording stem as the filename.
-- Writes a compact sidecar JSON (e.g., `<stem>.meta.json`) capturing checksum, duration, and label length so resume jobs can quickly skip already-materialized entries.
+`materialize_tokenizer(codes, output_dir)`
+- Build vocab = special tokens (`<pad>`, `<s>`, `</s>`, `<unk>`) + `f"{code}_{state}"` for `state ∈ {"DOWN", "UP"}`.
+- Use `tokenizers.Tokenizer(WordLevel(...))` + `PreTrainedTokenizerFast` wrapper, `padding_side="right"`.
+- Save `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, plus `codes.json` for auditing.
 
-`prepare_example(batch: dict) -> dict`
-- Intended for `Dataset.map`, it loads the cached audio (already resampled to 16 kHz by `Audio`), runs the Whisper feature extractor, and flattens the resulting tensors to `batch["input_features"]`.
-- Tokenizes `labels_text` with `add_special_tokens=True`, stores the integer list under `batch["labels"]`, and returns the enriched batch so the Trainer receives ready-to-batch PyTorch objects.
+`events_to_text(manifest_row, vocab)`
+- Sort events by `time`, convert to `code_state` tokens, drop anything unknown (`<unk>` fallback), and store `labels_text`.
 
-== Training Metrics and Evaluation
+## Feature Cache & Dataset Preparation
+`precompute_example_features(manifest_row, tokens_dir, feature_extractor, tokenizer)`
+- Use `datasets.Audio` to load the audio array at 16 kHz.
+- Run `WhisperFeatureExtractor(..., return_tensors="pt")` to produce mel features and attention masks.
+- Tokenize `labels_text` with BOS/EOS; convert to tensors and save via `torch.save` to `tokens/<split>/<stem>.pt` (dictionary with `input_features`, `labels`, `attention_mask`).
+- Write `<stem>.meta.json` capturing `duration`, `num_frames`, `num_labels`, `split`, `hash`.
+- Skips existing cache entries if the meta file’s checksum matches the manifest; otherwise recompute.
 
-`compute_metrics(eval_pred) -> Dict[str, float]`
-- Accepts the `(preds, labels)` tuple supplied by `Seq2SeqTrainer`, replaces `-100` positions in `labels` with the tokenizer’s pad token ID, and decodes both arrays with `skip_special_tokens=True`.
-- Calculates full-sequence exact match accuracy plus token-level accuracy (position-wise comparison up to the shorter sequence length) and returns those floats for logging to stdout and wandb.
+`prepare_example(batch, feature_cache_root)`
+- When mapping over a `Dataset`, attempt to load the cached tensor file; on miss, recompute features (and write them back) before returning the batch.
+- Ensure outputs always include `input_features`, `labels`, and `attention_mask` as torch tensors on CPU.
 
-== Inference Utilities
+`add_audio_path(example, data_root)`
+- Resolve `example["audio_file"]` against `data_root`; if missing, try `_DELETED.webm`. Raises `FileNotFoundError` when neither exists.
 
-`decode_recording(audio_path: str, max_length: int = 256) -> List[str]`
-- Uses `soundfile` to load the waveform, resamples with `librosa` when the sample rate differs from 16 kHz, and feeds the tensor through the Whisper feature extractor before calling `model.generate`.
-- Decodes the generated IDs back to strings and splits on whitespace, yielding an ordered list of predicted key tokens that downstream evaluation code can compare against ground truth logs.
+## Training Loop & Checkpointing
+`load_or_download_checkpoint(model_dir, base_model)`
+- If `checkpoints/latest/` exists, load the saved `pytorch_model.bin`, `optimizer.pt`, `scheduler.pt`, `scaler.pt`, and return them with the latest step count.
+- Otherwise download `base_model` via `WhisperForConditionalGeneration.from_pretrained` into a temp dir on ephemeral storage, copy into `/vol/kasca-data/base_models/base`, and initialize decoder weights plus LoRA adapters.
+
+`train_eventcode_model`
+- Build `Seq2SeqTrainer` or custom loop using `Accelerator(mixed_precision="bf16")` for the single A100.
+- Consume cached datasets with `DataLoader` (`num_workers=4`, `pin_memory=True`, `persistent_workers=True`).
+- Apply gradient accumulation to reach effective batch size 32; clip gradients at 1.0.
+- Every 500 optimizer steps, call `save_checkpoint` to write `model`, `optimizer`, `scheduler`, `scaler`, and `trainer_state.json`.
+- Maintain symlinks (or text files) `checkpoints/latest` and `checkpoints/best` pointing to folders.
+
+`save_checkpoint(model_state, checkpoint_dir, tag)`
+- Create `checkpoint_dir/tag`, write HF-compatible `pytorch_model.bin` plus `adapter_config.json` (for LoRA) and `tokenizer_config.json` copy.
+- Update `latest` symlink, prune older checkpoints beyond the most recent three in addition to `best`.
+
+## Metrics, Logging & Alerts
+`compute_metrics(eval_pred)`
+- Replace `-100` with pad token IDs, decode predictions and labels, compute sequence + token accuracy, and optionally compute Levenshtein distance for diagnostics.
+- Return metrics dict enriched with `eval_loss` if provided by the trainer.
+
+`log_metrics_to_wandb(metrics, step, split)`
+- Initialize wandb run once per process using `os.environ["WANDB_API_KEY"]` from the Modal secret.
+- Log metrics with tags `{ "split": split }` plus config info (manifest hash, hyperparams).
+- When `split ## "test"` and `token_accuracy` improves, log the checkpoint path as a wandb artifact.
+
+If `token_accuracy_test` drops by more than 5% compared to the previous evaluation, emit a `wandb.alert` and raise `RuntimeError` to end the run early.
+
+## Inference Utilities
+`decode_recording(audio_path, checkpoint_dir, tokenizer_path, max_length=256)`
+- Load waveform with `soundfile`; resample using `librosa` if sampling rate ≠ 16 kHz.
+- Run `feature_extractor` to get `input_features`, move to GPU (or CPU for the webhook), and call `model.generate` with `generation_config = GenerationConfig(max_length=max_length, pad_token_id=tokenizer.pad_token_id, eos_token_id=tokenizer.eos_token_id)`.
+- Decode tokens back to strings, split on whitespace, and return for downstream comparison.
+
+`decode_recording_fn`
+- HTTP/CLI entry point that accepts either an uploaded `.webm` or a filename referencing `/vol/kasca-data/recordings`.
+- Loads the `best` checkpoint, runs `decode_recording`, and responds with both predicted tokens and the ground-truth sequence (if available) plus any mismatches.
+
+## Automation Hooks
+- `sync_recordings` is decorated with `@app.function(schedule=modal.Periodic("15m"), retries=3)` to keep data fresh.
+- `prepare_dataset` can be exposed as `modal.Cron` or CLI to rebuild manifests/tokenizer/tokens; it validates that `len(tokens/train)` equals the number of manifest rows assigned to train.
+- `train_eventcode_model` expects `prepare_dataset` to have run successfully; it asserts caches exist before launching training.
+
