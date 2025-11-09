@@ -5,7 +5,6 @@ export interface KeystrokeEvent {
 	session_id: string;
 	timestamp: number;
 	key: string;
-	text?: string;
 	event_type: 'keydown' | 'keyup';
 }
 

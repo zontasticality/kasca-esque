@@ -8,6 +8,7 @@
 		"build": "vite build",
 		"preview": "tsx server.ts",
 		"start": "tsx server.ts",
+		"migrate:keys": "tsx scripts/migrate-keycodes.ts",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"

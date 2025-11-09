@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import fs from 'fs/promises';
 import path from 'path';
 import type { RequestHandler } from './$types';
+import { keyLikeToCode } from '$lib/keyboard/keyMappings';
 
 const RECORDINGS_DIR = './recordings';
 const WEBM_EXTENSION = '.webm';
@@ -49,7 +50,6 @@ type NormalizedRecording = {
 	keystrokes: Array<{
 		timestamp: number;
 		key: string;
-		text?: string;
 		event_type: 'keydown' | 'keyup';
 	}>;
 	audio_file: string;
@@ -108,24 +108,20 @@ function normalizeKeystrokes(raw: unknown): NormalizedRecording['keystrokes'] {
 		if (!Number.isFinite(timestamp)) {
 			continue;
 		}
-		const key = coerceKey(entry.key ?? entry.code);
-		const textValue = coerceKey(
-			entry.text ?? entry.display ?? entry.value ?? entry.character ?? entry.char
-		);
-
-		const resolvedText = resolveTextValue(key, textValue);
+		const rawKey = coerceString(entry.key ?? entry.code);
+		const rawText = coerceString(entry.text ?? entry.display ?? entry.value ?? entry.character ?? entry.char);
+		const code = keyLikeToCode(rawKey ?? rawText ?? '');
+		if (!code) {
+			continue;
+		}
 		const eventTypeRaw = coerceString(entry.event_type ?? entry.type);
 		const eventType: 'keydown' | 'keyup' = eventTypeRaw === 'keyup' ? 'keyup' : 'keydown';
 
 		const normalized = {
 			timestamp,
-			key,
+			key: code,
 			event_type: eventType
-		} as NormalizedRecording['keystrokes'][number];
-
-		if (resolvedText) {
-			normalized.text = resolvedText;
-		}
+		} satisfies NormalizedRecording['keystrokes'][number];
 
 		entries.push(normalized);
 	}
@@ -179,63 +175,6 @@ function coerceString(value: unknown) {
 	}
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function coerceKey(value: unknown) {
-	if (typeof value !== 'string') {
-		return '';
-	}
-
-	if (value === ' ') {
-		return ' ';
-	}
-
-	const trimmed = value.trim();
-	if (!trimmed) {
-		return '';
-	}
-
-	return trimmed;
-}
-
-function resolveTextValue(key: string, provided?: string) {
-	if (provided !== undefined) {
-		return provided;
-	}
-
-	return deriveTextFromKey(key);
-}
-
-const TEXT_KEYWORDS = new Set([
-	'enter',
-	'backspace',
-	'delete',
-	'tab',
-	'arrowleft',
-	'arrowright',
-	'arrowup',
-	'arrowdown'
-]);
-
-function deriveTextFromKey(key: string) {
-	if (!key) {
-		return '';
-	}
-
-	if (key === ' ') {
-		return ' ';
-	}
-
-	if (key.length === 1) {
-		return key;
-	}
-
-	const normalized = key.toLowerCase();
-	if (normalized === 'space' || normalized === 'spacebar' || normalized === 'space bar') {
-		return ' ';
-	}
-
-	return TEXT_KEYWORDS.has(normalized) ? key : '';
 }
 
 function coerceNumber(value: unknown) {

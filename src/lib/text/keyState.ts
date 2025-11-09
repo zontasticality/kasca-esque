@@ -1,3 +1,4 @@
+import { normalizeDisplayKey, keyLikeToCode } from '$lib/keyboard/keyMappings';
 import type { KeystrokeEvent } from './textTimeline';
 
 export interface KeySnapshot {
@@ -18,9 +19,9 @@ export function buildKeyTimeline(keystrokes: readonly KeystrokeEvent[]) {
 	const states: StoredState[] = [];
 	const pressed = new Set<string>();
 
-	for (const event of events) {
-		const key = normalizeKeyValue(event.key || event.text);
-		if (!key) continue;
+		for (const event of events) {
+			const key = normalizeKeyValue(event.key);
+			if (!key) continue;
 
 		if (event.event_type === 'keyup') {
 			pressed.delete(key);
@@ -80,41 +81,10 @@ export function normalizeKeyValue(value: unknown) {
 		return '';
 	}
 
-	if (value === ' ') {
-		return ' ';
+	const code = keyLikeToCode(value);
+	if (!code) {
+		return value.trim().toUpperCase();
 	}
 
-	const trimmed = value.trim();
-	if (!trimmed) {
-		return '';
-	}
-
-	switch (trimmed) {
-		case 'Space':
-		case 'Spacebar':
-		case 'Space Bar':
-			return ' ';
-		case 'ShiftLeft':
-		case 'ShiftRight':
-			return 'Shift';
-		case 'ControlLeft':
-		case 'ControlRight':
-		case 'Ctrl':
-		case 'Control':
-			return 'Control';
-		case 'AltLeft':
-		case 'AltRight':
-		case 'Alt':
-			return 'Alt';
-		case 'MetaLeft':
-		case 'MetaRight':
-		case 'Meta':
-		case 'OS':
-			return 'Meta';
-		case 'ContextMenu':
-		case 'Menu':
-			return 'ContextMenu';
-		default:
-			return trimmed.length === 1 ? trimmed.toUpperCase() : trimmed;
-	}
+	return normalizeDisplayKey(code);
 }

@@ -14,7 +14,6 @@ export interface Recording {
 	keystrokes: Array<{
 		timestamp: number;
 		key: string;
-		text?: string;
 		event_type: 'keydown' | 'keyup';
 	}>;
 	audio_file: string;
@@ -77,17 +76,11 @@ export class RecordingManager {
 			return;
 		}
 
-		const entry = {
+		recording.keystrokes.push({
 			timestamp: keystroke.timestamp,
 			key: keystroke.key,
 			event_type: keystroke.event_type
-		} as Recording['keystrokes'][number];
-
-		if (typeof keystroke.text === 'string') {
-			entry.text = keystroke.text;
-		}
-
-		recording.keystrokes.push(entry);
+		});
 	}
 
 	async stopRecording(recordingId: string, endTimestamp: number): Promise<string> {

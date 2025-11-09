@@ -51,14 +51,11 @@
 		}
 
 		const physicalKey = event.code || event.key || 'Unidentified';
-		const textValue = event.key ?? '';
-
 		const message = {
 			type: 'keystroke',
 			session_id: sessionId,
 			timestamp: Date.now(),
 			key: physicalKey,
-			text: textValue,
 			event_type: eventType
 		};
 
