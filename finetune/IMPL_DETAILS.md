@@ -59,18 +59,29 @@ base_image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg")
     .uv_pip_install(
-        "numpy", "requests", "soundfile", "librosa",
-        "datasets[audio]>=2.19.0", "torch==2.9.0", "torchaudio==2.9.0",
-        "transformers>=4.44.0", "accelerate>=0.33.0", "peft>=0.12.0",
-        "tokenizers>=0.15.0", "evaluate", "wandb", "torchcodec==0.8.*",
+        "numpy==1.26.4",
+        "requests==2.31.0",
+        "soundfile==0.12.1",
+        "librosa==0.10.1",
+        "datasets[audio]==2.19.0",
+        "torch==2.9.0",
+        "torchaudio==2.9.0",
+        "transformers==4.44.0",
+        "accelerate==0.33.0",
+        "peft==0.12.0",
+        "tokenizers==0.15.2",
+        "evaluate==0.4.2",
+        "wandb==0.16.6",
+        "torchcodec==0.8.0",
     )
 )
 
 kasca_volume = modal.Volume.persisted("kasca-data", use_blob_storage=True)
 wandb_secret = modal.Secret.from_name("wandb-secret")
 ```
+- After building the image once, push it to a tagged registry (`whisper-eventcode:2024-05-17`) and reference by digest in all Modal functions to keep retrains reproducible until dependencies are intentionally bumped.
 - `sync_recordings` and `prepare_dataset` run CPU-only.
-- `train_eventcode_model` uses `gpu=modal.gpu.A100()` with `allow_concurrent_inputs=1`, `timeout=12*60*60`, and `enable_memory_snapshot=True` for fast cold-start recovery.
+- `train_eventcode_model` uses `gpu=modal.gpu.A100()` with `allow_concurrent_inputs=1`, `timeout=12*60*60`, and `enable_memory_snapshot=True` for fast cold-start recovery. Multi-GPU is intentionally deferred because LoRA keeps per-step memory <20 GB and the dataset is <10 h; DDP overhead would outweigh gains until we scale data or unfreeze the full encoder.
 - `decode_recording_fn` is exposed via `@app.webhook("decode")` or `@app.function` for CLI use; it operates on CPU but reads the latest checkpoint.
 
 ## Synchronization & Partitioning
@@ -128,6 +139,7 @@ wandb_secret = modal.Secret.from_name("wandb-secret")
 - Apply gradient accumulation to reach effective batch size 32; clip gradients at 1.0.
 - Every 500 optimizer steps, call `save_checkpoint` to write `model`, `optimizer`, `scheduler`, `scaler`, and `trainer_state.json`.
 - Maintain symlinks (or text files) `checkpoints/latest` and `checkpoints/best` pointing to folders.
+- Default LoRA configuration: rank 16, α 32 (≈2×rank), dropout 0.05 on adapter outputs, adapters on encoder attention Q/K/V/O projections only. When validation metrics plateau below spec targets for ≥2 epochs (saturation), launch short sweeps with rank {16, 32}, α = 2×rank, dropout {0.05, 0.1}. Promote the best configuration if it yields >1–2% accuracy gains; otherwise consider expanding adapter coverage or unfreezing the encoder once more data is available.
 
 `save_checkpoint(model_state, checkpoint_dir, tag)`
 - Create `checkpoint_dir/tag`, write HF-compatible `pytorch_model.bin` plus `adapter_config.json` (for LoRA) and `tokenizer_config.json` copy.
@@ -136,7 +148,7 @@ wandb_secret = modal.Secret.from_name("wandb-secret")
 ## Metrics, Logging & Alerts
 `compute_metrics(eval_pred)`
 - Replace `-100` with pad token IDs, decode predictions and labels, compute sequence + token accuracy, and optionally compute Levenshtein distance for diagnostics.
-- Return metrics dict enriched with `eval_loss` if provided by the trainer.
+- Return metrics dict enriched with `eval_loss` if provided by the trainer. `sequence_accuracy` should be treated as a whole-timeline match (all tokens correct, including DOWN/UP ordering) so it plays the role of “sentence accuracy” for keyboard sequences, while `token_accuracy` surfaces per-event drift.
 
 `log_metrics_to_wandb(metrics, step, split)`
 - Initialize wandb run once per process using `os.environ["WANDB_API_KEY"]` from the Modal secret.
@@ -159,4 +171,3 @@ If `token_accuracy_test` drops by more than 5% compared to the previous evaluati
 - `sync_recordings` is decorated with `@app.function(schedule=modal.Periodic("15m"), retries=3)` to keep data fresh.
 - `prepare_dataset` can be exposed as `modal.Cron` or CLI to rebuild manifests/tokenizer/tokens; it validates that `len(tokens/train)` equals the number of manifest rows assigned to train.
 - `train_eventcode_model` expects `prepare_dataset` to have run successfully; it asserts caches exist before launching training.
-
