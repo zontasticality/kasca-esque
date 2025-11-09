@@ -24,10 +24,13 @@ export interface Recording {
 export class RecordingManager {
 	private recordings: Map<string, Recording> = new Map();
 	private audioWriteStreams: Map<string, fs.FileHandle> = new Map();
+	private writeQueues: Map<string, Promise<void>> = new Map();
 	private recordingsDir = './recordings';
+	private randomWriteDelayMaxMs: number | null;
 
 	constructor() {
 		this.ensureRecordingsDir();
+		this.randomWriteDelayMaxMs = this.parseRandomWriteDelay();
 	}
 
 	private async ensureRecordingsDir() {
@@ -68,7 +71,14 @@ export class RecordingManager {
 			throw new Error(`No audio stream found for recording ${recordingId}`);
 		}
 
-		await fileHandle.write(chunk);
+		const previous = this.writeQueues.get(recordingId) ?? Promise.resolve();
+		const next = previous.then(async () => {
+			await this.maybeApplyRandomWriteDelay();
+			await fileHandle.write(chunk);
+		});
+
+		this.writeQueues.set(recordingId, next.catch(() => {}));
+		await next;
 	}
 
 	addKeystroke(recordingId: string, keystroke: KeystrokeEvent): void {
@@ -89,6 +99,15 @@ export class RecordingManager {
 		const recording = this.recordings.get(recordingId);
 		if (!recording) {
 			throw new Error(`Recording ${recordingId} not found`);
+		}
+
+		const pendingWrites = this.writeQueues.get(recordingId);
+		if (pendingWrites) {
+			try {
+				await pendingWrites;
+			} finally {
+				this.writeQueues.delete(recordingId);
+			}
 		}
 
 		// Close audio file
@@ -187,5 +206,35 @@ export class RecordingManager {
 		const seconds = String(date.getSeconds()).padStart(2, '0');
 
 		return `recording_${year}${month}${day}_${hours}${minutes}${seconds}.${extension}`;
+	}
+
+	private parseRandomWriteDelay(): number | null {
+		const raw = process.env.RANDOM_CHUNK_DELAY_MAX_MS;
+		if (!raw) {
+			return null;
+		}
+
+		const parsed = Number(raw);
+		if (Number.isFinite(parsed) && parsed > 0) {
+			return parsed;
+		}
+
+		console.warn(
+			`RANDOM_CHUNK_DELAY_MAX_MS="${raw}" is not a positive number; ignoring debug delay.`
+		);
+		return null;
+	}
+
+	private async maybeApplyRandomWriteDelay(): Promise<void> {
+		if (!this.randomWriteDelayMaxMs) {
+			return;
+		}
+
+		const delay = Math.floor(Math.random() * this.randomWriteDelayMaxMs);
+		if (delay <= 0) {
+			return;
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, delay));
 	}
 }
