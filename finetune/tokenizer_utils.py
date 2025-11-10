@@ -12,203 +12,34 @@ from transformers import PreTrainedTokenizerFast
 
 SPECIAL_TOKENS = ["<pad>", "<s>", "</s>", "<unk>"]
 
-KEY_CODES = sorted(
-    [
-        # Writing system keys (alphanumeric section)
-        "Backquote",
-        "Backslash",
-        "BracketLeft",
-        "BracketRight",
-        "Comma",
-        "Digit0",
-        "Digit1",
-        "Digit2",
-        "Digit3",
-        "Digit4",
-        "Digit5",
-        "Digit6",
-        "Digit7",
-        "Digit8",
-        "Digit9",
-        "Equal",
-        "IntlBackslash",
-        "IntlRo",
-        "IntlYen",
-        "KeyA",
-        "KeyB",
-        "KeyC",
-        "KeyD",
-        "KeyE",
-        "KeyF",
-        "KeyG",
-        "KeyH",
-        "KeyI",
-        "KeyJ",
-        "KeyK",
-        "KeyL",
-        "KeyM",
-        "KeyN",
-        "KeyO",
-        "KeyP",
-        "KeyQ",
-        "KeyR",
-        "KeyS",
-        "KeyT",
-        "KeyU",
-        "KeyV",
-        "KeyW",
-        "KeyX",
-        "KeyY",
-        "KeyZ",
-        "Minus",
-        "Period",
-        "Quote",
-        "Semicolon",
-        "Slash",
-        # Functional keys in the alphanumeric section
-        "AltLeft",
-        "AltRight",
-        "Backspace",
-        "CapsLock",
-        "ContextMenu",
-        "ControlLeft",
-        "ControlRight",
-        "Enter",
-        "MetaLeft",
-        "MetaRight",
-        "ShiftLeft",
-        "ShiftRight",
-        "Space",
-        "Tab",
-        # Extra functional keys (Japanese/Korean layouts)
-        "Convert",
-        "KanaMode",
-        "Lang1",
-        "Lang2",
-        "Lang3",
-        "Lang4",
-        "Lang5",
-        "NonConvert",
-        # Control pad section
-        "Delete",
-        "End",
-        "Help",
-        "Home",
-        "Insert",
-        "PageDown",
-        "PageUp",
-        # Arrow pad section
-        "ArrowDown",
-        "ArrowLeft",
-        "ArrowRight",
-        "ArrowUp",
-        # Numpad section
-        "NumLock",
-        "Numpad0",
-        "Numpad1",
-        "Numpad2",
-        "Numpad3",
-        "Numpad4",
-        "Numpad5",
-        "Numpad6",
-        "Numpad7",
-        "Numpad8",
-        "Numpad9",
-        "NumpadAdd",
-        "NumpadBackspace",
-        "NumpadClear",
-        "NumpadClearEntry",
-        "NumpadComma",
-        "NumpadDecimal",
-        "NumpadDivide",
-        "NumpadEnter",
-        "NumpadEqual",
-        "NumpadHash",
-        "NumpadMemoryAdd",
-        "NumpadMemoryClear",
-        "NumpadMemoryRecall",
-        "NumpadMemoryStore",
-        "NumpadMemorySubtract",
-        "NumpadMultiply",
-        "NumpadParenLeft",
-        "NumpadParenRight",
-        "NumpadStar",
-        "NumpadSubtract",
-        # Function section
-        "Escape",
-        "F1",
-        "F2",
-        "F3",
-        "F4",
-        "F5",
-        "F6",
-        "F7",
-        "F8",
-        "F9",
-        "F10",
-        "F11",
-        "F12",
-        "F13",
-        "F14",
-        "F15",
-        "F16",
-        "F17",
-        "F18",
-        "F19",
-        "F20",
-        "F21",
-        "F22",
-        "F23",
-        "F24",
-        "Fn",
-        "FnLock",
-        "PrintScreen",
-        "ScrollLock",
-        "Pause",
-        # Media / browser / system keys
-        "BrowserBack",
-        "BrowserFavorites",
-        "BrowserForward",
-        "BrowserHome",
-        "BrowserRefresh",
-        "BrowserSearch",
-        "BrowserStop",
-        "Eject",
-        "LaunchApp1",
-        "LaunchApp2",
-        "LaunchMail",
-        "MediaPlayPause",
-        "MediaSelect",
-        "MediaStop",
-        "MediaTrackNext",
-        "MediaTrackPrevious",
-        "Power",
-        "Sleep",
-        "AudioVolumeDown",
-        "AudioVolumeMute",
-        "AudioVolumeUp",
-        "WakeUp",
-        # Legacy / non-standard / special keys
-        "Hyper",
-        "Super",
-        "Turbo",
-        "Abort",
-        "Resume",
-        "Suspend",
-        "Again",
-        "Copy",
-        "Cut",
-        "Find",
-        "Open",
-        "Paste",
-        "Props",
-        "Select",
-        "Undo",
-        "Hiragana",
-        "Katakana",
-        "Unidentified",
-    ]
-)
+
+def collect_event_codes(manifest_paths: Iterable[Path]) -> List[str]:
+    """
+    Scan manifest rows to extract every distinct KeyboardEvent.code observed so far.
+
+    Using manifests keeps the tokenizer vocabulary aligned with the normalized events
+    that actually make it into training/eval splits instead of whatever happens to be
+    present in raw key logs.
+    """
+    codes = set()
+    for manifest_path in manifest_paths:
+        if not manifest_path.exists():
+            continue
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                for event in row.get("events", []):
+                    code = event.get("code")
+                    if code:
+                        codes.add(code)
+    if not codes:
+        raise RuntimeError(
+            "No keyboard event codes found in manifests; run sync_recordings first."
+        )
+    return sorted(codes)
 
 
 def _build_vocab(codes: Iterable[str]) -> Mapping[str, int]:

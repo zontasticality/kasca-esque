@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 
 import modal
@@ -43,6 +44,53 @@ def _iter_manifest_rows(path: Path):
             yield json.loads(line)
 
 
+def _manifest_paths(manifest_base: Path) -> list[Path]:
+    return [manifest_base / "train.jsonl", manifest_base / "eval.jsonl"]
+
+
+def _collect_expected_stems(manifest_paths: list[Path]) -> dict[str, set[str]]:
+    splits: dict[str, set[str]] = defaultdict(set)
+    for manifest_path in manifest_paths:
+        if not manifest_path.exists():
+            continue
+        for row in _iter_manifest_rows(manifest_path):
+            split = row.get("split")
+            rel = row.get("audio_rel_path")
+            if not split or not rel:
+                continue
+            splits[split].add(Path(rel).stem)
+    return splits
+
+
+def _assert_cache_alignment(tokens_dir: Path, expected: dict[str, set[str]]) -> None:
+    """Abort prepare_dataset if leftover cache files don't match the manifests."""
+    problems: dict[str, list[str]] = {}
+    for split, stems in expected.items():
+        cache_dir = tokens_dir / split
+        cached = {path.stem for path in cache_dir.glob("*.pt")}
+        stale = sorted(cached - stems)
+        if stale:
+            problems[split] = stale
+    if tokens_dir.exists():
+        for cache_dir in tokens_dir.iterdir():
+            if not cache_dir.is_dir():
+                continue
+            split = cache_dir.name
+            if split not in expected:
+                extras = sorted(path.stem for path in cache_dir.glob("*.pt"))
+                if extras:
+                    problems[split] = extras
+    if problems:
+        summary = ", ".join(
+            f"{split}: {len(files)}" for split, files in problems.items()
+        )
+        raise RuntimeError(
+            "Feature cache is out of sync with manifests "
+            f"(stale examples detected: {summary}). "
+            "Remove the offending files or clear the tokens directory before rerunning prepare_dataset."
+        )
+
+
 @app.function(
     image=BASE_IMAGE,
     schedule=modal.Period(minutes=15),
@@ -75,16 +123,19 @@ def prepare_dataset():
         train_ratio=config.hyperparams.train_ratio,
         schema_version=config.manifest_schema_version,
     )
+    manifest_paths = _manifest_paths(config.volume_layout.manifests)
+    expected_stems = _collect_expected_stems(manifest_paths)
+    _assert_cache_alignment(config.volume_layout.tokens, expected_stems)
+    codes = tokenizer_utils.collect_event_codes(manifest_paths)
     tokenizer = tokenizer_utils.materialize_tokenizer(
-        tokenizer_utils.KEY_CODES, config.volume_layout.tokenizer
+        codes, config.volume_layout.tokenizer
     )
     feature_extractor = WhisperFeatureExtractor.from_pretrained(
         config.hyperparams.base_model
     )
     whisper_config = WhisperConfig.from_pretrained(config.hyperparams.base_model)
     max_target_positions = whisper_config.max_target_positions
-    for manifest_name in ("train.jsonl", "eval.jsonl"):
-        manifest_path = config.volume_layout.manifests / manifest_name
+    for manifest_path in manifest_paths:
         for row in _iter_manifest_rows(manifest_path):
             precompute_example_features(
                 row,
@@ -118,4 +169,6 @@ def decode_recording_fn(filename: str):
     checkpoint_dir = config.volume_layout.checkpoints / "latest"
     tokens_dir = config.volume_layout.tokenizer
     tokens = inference.decode_recording(audio_path, checkpoint_dir, tokens_dir)
-    return tokens
+    import json
+
+    return json.dumps(tokens)

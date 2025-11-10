@@ -7,7 +7,7 @@
 - Run the full pipeline inside Modal, persisting artifacts to a `kasca-data` volume so training can resume after interruptions without re-downloading inputs.
 
 ## Data Lifecycle & Storage Layout
-1. A scheduled Modal function runs `sync_recordings` every 15 minutes, mirroring `/recordings` into `kasca-data/recordings` and pruning stale files.
+1. A scheduled Modal function can run `sync_recordings` every 15 minutes, mirroring `/recordings` into `kasca-data/recordings` and pruning stale files; manual runs are acceptable until automation is revisited.
 2. `build_manifests` transforms synchronized `.json/.webm` pairs into normalized event timelines and writes deterministic `train.jsonl` / `eval.jsonl` manifests under `kasca-data/manifests`.
 3. `collect_event_codes` reads every manifest row to construct the exact vocabulary used by the decoder and tokenizer.
 4. `precompute_example_features` materializes mel spectrogram tensors plus decoder labels into `kasca-data/tokens/<split>/` so experiments can memory-map cached tensors instead of recomputing audio features.
@@ -63,18 +63,19 @@ Directory contract inside the Modal volume:
 
 ## Evaluation, Monitoring & Logging
 - Run evaluation on both train and test splits every 250 optimizer steps or every 15 minutes, whichever happens first.
-- Metrics: `sequence_accuracy`, `token_accuracy`, `avg_decode_latency_ms`, plus loss curves reported to stdout and wandb; store raw metric JSON next to checkpoints. `sequence_accuracy` is an all-or-nothing match over entire key timelines (akin to “sentence accuracy”) and guards against subtle DOWN/UP ordering regressions, while `token_accuracy` provides per-event granularity.
+- Metrics: `sequence_accuracy` and `token_accuracy`, plus loss curves reported to stdout and wandb; store raw metric JSON next to checkpoints. `sequence_accuracy` is an all-or-nothing match over entire key timelines (akin to “sentence accuracy”) and guards against subtle DOWN/UP ordering regressions, while `token_accuracy` provides per-event granularity.
 - wandb logging: project `kasca-whisper`, job name derived from date + git commit, config contains hyperparameters and manifest hashes.
 - Surface alerts: if `token_accuracy_test` drops by >5% relative to the previous evaluation, mark the run as `failed` and stop early to prevent regressing checkpoints.
 
-## Inference Smoke Tests
-- After each successful evaluation, `decode_recording_fn` should automatically run on three randomly sampled test recordings, store decoded tokens next to ground-truth JSON, and upload short comparisons to wandb artifacts for manual review.
+## Deferred Monitoring & UX Enhancements
+- Re-introduce `avg_decode_latency_ms` tracking plus wandb artifact uploads that bundle predictions, labels, and checkpoints once the core loop is stable.
+- Automate `decode_recording_fn` smoke tests on randomly sampled eval recordings after each evaluation so regressions are easier to spot visually.
 
 ## Component Functions
 - `sync_recordings(base_url: str, kasca_volume: Path, cache_subdir: str = "recordings")`
 - `hash_partition(recording_name: str, train_ratio: float = 0.9) -> Literal["train", "test"]`
 - `build_manifests(recordings_dir: Path, manifest_dir: Path) -> Tuple[Path, Path]`
-- `collect_event_codes(recordings_dir: Path) -> List[str]`
+- `collect_event_codes(manifest_paths: Iterable[Path]) -> List[str]`
 - `materialize_tokenizer(codes: List[str], output_dir: Path) -> PreTrainedTokenizerFast`
 - `events_to_text(manifest_row: dict, vocab: Mapping[str, int]) -> dict`
 - `precompute_example_features(manifest_row: dict, tokens_dir: Path, feature_extractor, tokenizer) -> None`

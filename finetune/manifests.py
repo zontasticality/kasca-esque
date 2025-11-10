@@ -66,6 +66,31 @@ def _write_jsonl(rows: Iterable[dict], dest: Path) -> int:
     return count
 
 
+def _load_split_map(path: Path) -> Dict[str, str]:
+    if not path.exists():
+        return {}
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _assign_new_splits(
+    pending: List[Tuple[str, str]],
+    train_ratio: float,
+) -> Dict[str, str]:
+    """Assign splits to brand-new recordings by sorting hashes and slicing by ratio."""
+    if not pending:
+        return {}
+    pending.sort(key=lambda item: item[1])
+    cutoff = int(len(pending) * train_ratio)
+    # Guarantee at least one evaluation example whenever possible.
+    if len(pending) > 0 and cutoff == len(pending):
+        cutoff = len(pending) - 1
+    assignments: Dict[str, str] = {}
+    for idx, (recording, _) in enumerate(pending):
+        assignments[recording] = "train" if idx < cutoff else "test"
+    return assignments
+
+
 def build_manifests(
     recordings_dir: Path,
     manifest_dir: Path,
@@ -83,7 +108,9 @@ def build_manifests(
 
     train_rows: List[dict] = []
     eval_rows: List[dict] = []
-    split_map: Dict[str, str] = {}
+    split_map: Dict[str, str] = _load_split_map(split_map_path)
+    pending_assignments: List[Tuple[str, str]] = []
+    entries: List[dict] = []
 
     for json_path in sorted(recordings_dir.glob("*.json")):
         audio_path = json_path.with_suffix(".webm")
@@ -93,18 +120,28 @@ def build_manifests(
             payload = json.load(handle)
         keystrokes = payload.get("keystrokes", [])
         events = _normalize_events(keystrokes)
-        split = hash_partition(json_path.stem, train_ratio=train_ratio)
         entry = {
             "recording": json_path.name,
             "audio_rel_path": audio_path.name,
             "audio_path": str(audio_path.resolve()),
-            "split": split,
             "events": events,
             "duration": _audio_duration_seconds(audio_path),
             "num_events": len(events),
             "recording_sha256": hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest(),
         }
-        split_map[json_path.name] = split
+        entries.append(entry)
+        if json_path.name not in split_map:
+            digest = hashlib.blake2s(json_path.stem.lower().encode("utf-8"), digest_size=16).hexdigest()
+            pending_assignments.append((json_path.name, digest))
+
+    split_map.update(_assign_new_splits(pending_assignments, train_ratio))
+
+    for entry in entries:
+        split = split_map.get(entry["recording"])
+        if split is None:
+            split = hash_partition(Path(entry["recording"]).stem, train_ratio=train_ratio)
+            split_map[entry["recording"]] = split
+        entry["split"] = split
         if split == "train":
             train_rows.append(entry)
         else:

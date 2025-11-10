@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from collections import deque
 from dataclasses import dataclass
 from functools import wraps
+import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import torch
 from peft import LoraConfig, TaskType, get_peft_model
@@ -66,9 +68,22 @@ class EventCodeCollator:
         }
 
 
-class WandbMetricsCallback(TrainerCallback):
+class TrainerSpecCallback(TrainerCallback):
+    """Enforce spec-driven logging, early stopping, and checkpoint hygiene."""
+
     def __init__(self, app_config: AppConfig):
         self.config = app_config
+        self.metrics_dir = app_config.checkpoints_base / "metrics"
+        self.metrics_dir.mkdir(parents=True, exist_ok=True)
+        self.best_token_accuracy = 0.0
+        self.prev_token_accuracy: Optional[float] = None
+        self.stall_counter = 0
+        self.pending_best_step: Optional[int] = None
+        self.saved_checkpoints: deque[Path] = deque()
+        self.keep_last = app_config.hyperparams.max_saved_checkpoints
+        self.latest_symlink = app_config.checkpoints_base / "latest"
+        self.best_symlink = app_config.checkpoints_base / "best"
+        self.best_checkpoint_path: Optional[Path] = None
 
     def on_evaluate(
         self,
@@ -78,11 +93,87 @@ class WandbMetricsCallback(TrainerCallback):
         metrics_dict=None,
         **kwargs,
     ):
-        if metrics_dict:
-            metrics.log_metrics_to_wandb(
-                metrics_dict, int(state.global_step), "eval", self.config
-            )
+        if not metrics_dict:
+            return control
+        step = int(state.global_step)
+        metrics.log_metrics_to_wandb(metrics_dict, step, "eval", self.config)
+        self._write_metrics_file(step, metrics_dict)
+
+        token_acc = metrics_dict.get("token_accuracy")
+        if token_acc is not None:
+            if self.prev_token_accuracy is not None:
+                drop = self.prev_token_accuracy - token_acc
+                if drop > 0.05:
+                    raise RuntimeError(
+                        f"token_accuracy dropped by {drop:.3f} (>0.05) at step {step}; aborting run to protect checkpoints."
+                    )
+            improvement = token_acc - self.best_token_accuracy
+            if improvement >= 0.005:
+                self.best_token_accuracy = token_acc
+                self.stall_counter = 0
+                control.should_save = True
+                self.pending_best_step = step
+            else:
+                self.stall_counter += 1
+                if self.stall_counter >= self.config.hyperparams.patience_evals:
+                    control.should_training_stop = True
+            self.prev_token_accuracy = token_acc
         return control
+
+    def on_save(self, args, state: TrainerState, control: TrainerControl, **kwargs):
+        checkpoint_dir = Path(args.output_dir) / f"checkpoint-{state.global_step}"
+        if checkpoint_dir.exists():
+            self._register_checkpoint(checkpoint_dir)
+            if self.pending_best_step is not None and int(state.global_step) == self.pending_best_step:
+                self.best_checkpoint_path = checkpoint_dir
+                self._update_symlink(checkpoint_dir, self.best_symlink)
+                self.pending_best_step = None
+        return control
+
+    def register_manual_checkpoint(self, checkpoint_dir: Path) -> None:
+        """Allow caller to register a checkpoint saved outside Trainer callbacks."""
+        self._register_checkpoint(checkpoint_dir)
+
+    def ensure_best_symlink(self) -> None:
+        """Default best -> latest when no eval ever improved."""
+        if not self.best_symlink.exists() and self.latest_symlink.exists():
+            target = self.latest_symlink.resolve()
+            self._update_symlink(target, self.best_symlink)
+
+    def _write_metrics_file(self, step: int, metrics_dict: Dict[str, float]) -> None:
+        metrics_path = self.metrics_dir / f"eval-step-{step:06d}.json"
+        payload = {"step": step}
+        payload.update(metrics_dict)
+        with open(metrics_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, default=float)
+
+    def _register_checkpoint(self, checkpoint_dir: Path) -> None:
+        resolved = checkpoint_dir.resolve()
+        if resolved in self.saved_checkpoints:
+            self.saved_checkpoints.remove(resolved)
+        self.saved_checkpoints.append(resolved)
+        self._update_symlink(resolved, self.latest_symlink)
+        self._prune_checkpoints()
+
+    def _update_symlink(self, target: Path, link: Path) -> None:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if link.is_symlink() or link.exists():
+                link.unlink()
+        except FileNotFoundError:
+            pass
+        link.symlink_to(target, target_is_directory=True)
+
+    def _prune_checkpoints(self) -> None:
+        while len(self.saved_checkpoints) > self.keep_last:
+            oldest = self.saved_checkpoints.popleft()
+            if (
+                self.best_checkpoint_path is not None
+                and oldest == self.best_checkpoint_path.resolve()
+            ):
+                self.saved_checkpoints.append(oldest)
+                break
+            shutil.rmtree(oldest, ignore_errors=True)
 
 
 def _load_manifest_rows(manifest_path: Path) -> List[dict]:
@@ -116,15 +207,34 @@ def _ensure_feature_caches(
         )
 
 
+def _encoder_attention_targets(model) -> List[str]:
+    targets: List[str] = []
+    suffixes = (
+        "self_attn.q_proj",
+        "self_attn.k_proj",
+        "self_attn.v_proj",
+        "self_attn.out_proj",
+    )
+    for name, _ in model.named_modules():
+        if not name.startswith("model.encoder.layers"):
+            continue
+        if name.endswith(suffixes):
+            targets.append(name)
+    return targets
+
+
 def _apply_lora(model, hyper: TrainingHyperparams):
     _ensure_whisper_forward_signature(model)
+    target_modules = _encoder_attention_targets(model)
+    if not target_modules:
+        target_modules = ["q_proj", "k_proj", "v_proj", "out_proj"]
     lora_cfg = LoraConfig(
         task_type=TaskType.SEQ_2_SEQ_LM,
         r=hyper.lora_rank,
         lora_alpha=hyper.lora_alpha,
         lora_dropout=hyper.lora_dropout,
         bias="none",
-        target_modules=["q_proj", "k_proj", "v_proj", "out_proj"],
+        target_modules=target_modules,
     )
     return get_peft_model(model, lora_cfg)
 
@@ -226,24 +336,19 @@ def train_eventcode_model(config: Optional[AppConfig] = None):
         tokenizer=tokenizer,
         compute_metrics=metrics.build_compute_metrics(tokenizer),
     )
-    trainer.add_callback(WandbMetricsCallback(app_config))
+    spec_callback = TrainerSpecCallback(app_config)
+    trainer.add_callback(spec_callback)
     trainer.train(
         resume_from_checkpoint=str(resume_checkpoint) if resume_checkpoint else None
     )
 
-    final_tag = f"step-{trainer.state.global_step:06d}"
-    trainer_state = (
-        trainer.state.to_dict()
-        if hasattr(trainer.state, "to_dict")
-        else dict(trainer.state.__dict__)
-    )
-    checkpoint_state = {
-        "model": model,
-        "optimizer": trainer.optimizer,
-        "scheduler": trainer.lr_scheduler,
-        "trainer_state": trainer_state,
-    }
-    checkpoints.save_checkpoint(
-        checkpoint_state, app_config.checkpoints_base, final_tag
-    )
+    latest_link = app_config.checkpoints_base / "latest"
+    if not latest_link.exists():
+        final_checkpoint = (
+            app_config.checkpoints_base
+            / f"checkpoint-{int(trainer.state.global_step):06d}"
+        )
+        trainer.save_model(str(final_checkpoint))
+        spec_callback.register_manual_checkpoint(final_checkpoint)
+    spec_callback.ensure_best_symlink()
     return trainer

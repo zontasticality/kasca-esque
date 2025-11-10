@@ -65,6 +65,7 @@ class TrainingHyperparams:
     lora_rank: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
+    max_saved_checkpoints: int = 4
 
     def __post_init__(self) -> None:
         object.__setattr__(

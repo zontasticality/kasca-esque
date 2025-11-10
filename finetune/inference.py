@@ -3,20 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-import librosa
-import numpy as np
-import soundfile as sf
 import torch
 from transformers import GenerationConfig, PreTrainedTokenizerFast, WhisperFeatureExtractor, WhisperForConditionalGeneration
 
-
-def _load_audio(audio_path: Path) -> np.ndarray:
-    audio, sr = sf.read(audio_path)
-    if audio.ndim > 1:
-        audio = np.mean(audio, axis=1)
-    if sr != 16000:
-        audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
-    return audio.astype(np.float32)
+from .audio_utils import load_audio_16k
 
 
 def decode_recording(
@@ -35,7 +25,7 @@ def decode_recording(
     model.to(device)
     model.eval()
 
-    waveform = _load_audio(audio_path)
+    waveform = load_audio_16k(audio_path)
     features = feature_extractor(waveform, sampling_rate=16000, return_tensors="pt")
     input_features = features.input_features.to(device)
     gen_config = GenerationConfig(
