@@ -70,9 +70,18 @@ class WandbMetricsCallback(TrainerCallback):
     def __init__(self, app_config: AppConfig):
         self.config = app_config
 
-    def on_evaluate(self, args, state: TrainerState, control: TrainerControl, metrics_dict=None, **kwargs):
+    def on_evaluate(
+        self,
+        args,
+        state: TrainerState,
+        control: TrainerControl,
+        metrics_dict=None,
+        **kwargs,
+    ):
         if metrics_dict:
-            metrics.log_metrics_to_wandb(metrics_dict, int(state.global_step), "eval", self.config)
+            metrics.log_metrics_to_wandb(
+                metrics_dict, int(state.global_step), "eval", self.config
+            )
         return control
 
 
@@ -171,14 +180,18 @@ def train_eventcode_model(config: Optional[AppConfig] = None):
     tokenizer = PreTrainedTokenizerFast.from_pretrained(app_config.tokenizer_base)
     train_rows = _load_manifest_rows(train_manifest)
     eval_rows = _load_manifest_rows(eval_manifest)
-    _ensure_feature_caches(train_rows + eval_rows, app_config.tokens_base, tokenizer, hyper.base_model)
+    _ensure_feature_caches(
+        train_rows + eval_rows, app_config.tokens_base, tokenizer, hyper.base_model
+    )
 
     train_dataset = CachedFeatureDataset(app_config.tokens_base, "train")
     eval_dataset = CachedFeatureDataset(app_config.tokens_base, "test")
     _log_dataset_label_stats("train", train_dataset)
     _log_dataset_label_stats("eval", eval_dataset)
 
-    model, resume_checkpoint = checkpoints.load_or_download_checkpoint(app_config.checkpoints_base, hyper.base_model)
+    model, resume_checkpoint = checkpoints.load_or_download_checkpoint(
+        app_config.checkpoints_base, hyper.base_model
+    )
     model = _apply_lora(model, hyper)
 
     training_args = Seq2SeqTrainingArguments(
@@ -214,7 +227,9 @@ def train_eventcode_model(config: Optional[AppConfig] = None):
         compute_metrics=metrics.build_compute_metrics(tokenizer),
     )
     trainer.add_callback(WandbMetricsCallback(app_config))
-    trainer.train(resume_from_checkpoint=str(resume_checkpoint) if resume_checkpoint else None)
+    trainer.train(
+        resume_from_checkpoint=str(resume_checkpoint) if resume_checkpoint else None
+    )
 
     final_tag = f"step-{trainer.state.global_step:06d}"
     trainer_state = (
@@ -228,5 +243,7 @@ def train_eventcode_model(config: Optional[AppConfig] = None):
         "scheduler": trainer.lr_scheduler,
         "trainer_state": trainer_state,
     }
-    checkpoints.save_checkpoint(checkpoint_state, app_config.checkpoints_base, final_tag)
+    checkpoints.save_checkpoint(
+        checkpoint_state, app_config.checkpoints_base, final_tag
+    )
     return trainer
