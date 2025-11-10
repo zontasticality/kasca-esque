@@ -26,3 +26,6 @@ vite.config.ts.timestamp-*
 finetune/recordings_cache
 finetune/manifests
 finetune/key_tokenizer
+
+**/__pycache__/
+*.log
