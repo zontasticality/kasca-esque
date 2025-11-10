@@ -27,7 +27,7 @@ export const GET: RequestHandler = async () => {
 					}
 				})
 			)
-		).filter((recording): recording is NormalizedRecording => recording !== null);
+		).filter((recording): recording is RecordingSummary => recording !== null);
 
 		// Sort by start timestamp, most recent first
 		recordings.sort((a, b) => b.start_timestamp - a.start_timestamp);
@@ -39,7 +39,7 @@ export const GET: RequestHandler = async () => {
 	}
 };
 
-type NormalizedRecording = {
+type RecordingSummary = {
 	filename: string;
 	deleted: boolean;
 	recording_id: string;
@@ -47,19 +47,15 @@ type NormalizedRecording = {
 	end_timestamp: number;
 	keyboard_session_id: string;
 	control_session_id: string;
-	keystrokes: Array<{
-		timestamp: number;
-		key: string;
-		event_type: 'keydown' | 'keyup';
-	}>;
 	audio_file: string;
+	keystroke_count: number;
 };
 
 function normalizeRecordingData(
 	filename: string,
 	data: Record<string, unknown>,
 	fileSet: Set<string>
-): NormalizedRecording {
+): RecordingSummary {
 	const deleted = filename.endsWith('_DELETED.json');
 	const baseName = stripJsonSuffix(filename);
 	const recordingId = coerceString(data.recording_id) ?? baseName;
@@ -82,8 +78,8 @@ function normalizeRecordingData(
 		end_timestamp: end,
 		keyboard_session_id: keyboardSession,
 		control_session_id: controlSession,
-		keystrokes,
-		audio_file: audioFile
+		audio_file: audioFile,
+		keystroke_count: keystrokes.length
 	};
 }
 
@@ -91,12 +87,18 @@ function stripJsonSuffix(filename: string) {
 	return filename.replace(/(_DELETED)?\.json$/, '');
 }
 
-function normalizeKeystrokes(raw: unknown): NormalizedRecording['keystrokes'] {
+type NormalizedKeystroke = {
+	timestamp: number;
+	key: string;
+	event_type: 'keydown' | 'keyup';
+};
+
+function normalizeKeystrokes(raw: unknown): NormalizedKeystroke[] {
 	if (!Array.isArray(raw)) {
 		return [];
 	}
 
-	const entries: NormalizedRecording['keystrokes'] = [];
+	const entries: NormalizedKeystroke[] = [];
 
 	for (const value of raw) {
 		if (typeof value !== 'object' || value === null) {
@@ -121,7 +123,7 @@ function normalizeKeystrokes(raw: unknown): NormalizedRecording['keystrokes'] {
 			timestamp,
 			key: code,
 			event_type: eventType
-		} satisfies NormalizedRecording['keystrokes'][number];
+		} satisfies NormalizedKeystroke;
 
 		entries.push(normalized);
 	}
@@ -130,10 +132,7 @@ function normalizeKeystrokes(raw: unknown): NormalizedRecording['keystrokes'] {
 	return entries;
 }
 
-function inferTimestamps(
-	data: Record<string, unknown>,
-	keystrokes: NormalizedRecording['keystrokes']
-) {
+function inferTimestamps(data: Record<string, unknown>, keystrokes: NormalizedKeystroke[]) {
 	const startCandidates = [
 		data.start_timestamp,
 		data.startTime,

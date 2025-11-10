@@ -2,25 +2,31 @@
 	import { onMount } from "svelte";
 	import RecordingTextState from "$lib/components/RecordingTextState.svelte";
 	import KeyboardState from "$lib/components/KeyboardState.svelte";
+	import type { KeystrokeEvent as RecordingKeystroke } from "$lib/text/textTimeline";
 
-	interface Recording {
+	interface RecordingSummary {
 		filename: string;
 		recording_id: string;
 		start_timestamp: number;
 		end_timestamp: number;
 		keyboard_session_id: string;
 		control_session_id: string;
-		keystrokes: Array<{
-			timestamp: number;
-			key: string;
-			event_type: "keydown" | "keyup";
-		}>;
 		audio_file: string;
 		deleted: boolean;
+		keystroke_count: number;
 	}
 
-	let recordings = $state<Recording[]>([]);
-	let selectedRecording = $state<Recording | null>(null);
+	type RecordingDetail = RecordingSummary & {
+		keystrokes: RecordingKeystroke[];
+	};
+
+	let recordings = $state<RecordingSummary[]>([]);
+	let recordingDetailsById = $state<Record<string, RecordingDetail>>({});
+	let selectedRecording = $state<RecordingSummary | null>(null);
+	let selectedRecordingDetails = $state<RecordingDetail | null>(null);
+	let detailLoadingId = $state<string | null>(null);
+	let detailLoadError = $state<string | null>(null);
+	let detailErrorRecordingId = $state<string | null>(null);
 	let audioElement = $state<HTMLAudioElement | null>(null);
 	let isPlaying = $state(false);
 	let currentTime = $state(0);
@@ -60,17 +66,36 @@
 			if (!response.ok) {
 				throw new Error("Failed to load recordings");
 			}
-			const data = await response.json();
+			const data: RecordingSummary[] = await response.json();
 			recordings = data;
+
+			const summariesById = new Map(
+				data.map((recording) => [recording.recording_id, recording]),
+			);
+
+			const nextDetails: Record<string, RecordingDetail> = {};
+			for (const [recordingId, detail] of Object.entries(
+				recordingDetailsById,
+			)) {
+				const summary = summariesById.get(recordingId);
+				if (summary) {
+					nextDetails[recordingId] = mergeDetail(summary, detail);
+				}
+			}
+			recordingDetailsById = nextDetails;
+
 			if (selectedRecording) {
-				const refreshed = data.find(
-					(recording: Recording) =>
-						recording.recording_id ===
-						selectedRecording?.recording_id,
-				);
-				selectedRecording = refreshed ?? null;
+				const refreshed =
+					summariesById.get(selectedRecording.recording_id) ?? null;
+				selectedRecording = refreshed;
 				if (!selectedRecording) {
+					selectedRecordingDetails = null;
+					detailLoadError = null;
+					detailErrorRecordingId = null;
 					stopPlayback(true);
+				} else {
+					selectedRecordingDetails =
+						recordingDetailsById[selectedRecording.recording_id] ?? null;
 				}
 			}
 		} catch (error) {
@@ -78,10 +103,65 @@
 		}
 	}
 
-	function selectRecording(recording: Recording) {
+	function selectRecording(recording: RecordingSummary) {
 		selectedRecording = recording;
+		detailLoadError = null;
+		detailErrorRecordingId = null;
+
+		const cached = recordingDetailsById[recording.recording_id];
+		if (cached) {
+			const merged = mergeDetail(recording, cached);
+			recordingDetailsById = {
+				...recordingDetailsById,
+				[recording.recording_id]: merged,
+			};
+			selectedRecordingDetails = merged;
+		} else {
+			selectedRecordingDetails = null;
+			void ensureRecordingDetails(recording);
+		}
+
 		stopPlayback(false);
 		duration = getRecordingDurationSeconds(recording);
+	}
+
+	async function ensureRecordingDetails(recording: RecordingSummary) {
+		if (recordingDetailsById[recording.recording_id]) {
+			return;
+		}
+
+		detailLoadingId = recording.recording_id;
+		detailLoadError = null;
+		detailErrorRecordingId = null;
+
+		try {
+			const response = await fetch(`/recordings/${recording.filename}`);
+			if (!response.ok) {
+				throw new Error("Failed to load recording details");
+			}
+			const data = await response.json();
+			const detail = normalizeRecordingDetails(recording, data);
+			recordingDetailsById = {
+				...recordingDetailsById,
+				[recording.recording_id]: detail,
+			};
+
+			if (selectedRecording?.recording_id === recording.recording_id) {
+				selectedRecordingDetails = detail;
+			}
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? error.message
+					: "Failed to load recording details";
+			detailLoadError = message;
+			detailErrorRecordingId = recording.recording_id;
+			console.error("Error loading recording details:", error);
+		} finally {
+			if (detailLoadingId === recording.recording_id) {
+				detailLoadingId = null;
+			}
+		}
 	}
 
 	$effect(() => {
@@ -155,7 +235,7 @@
 		isPlaying = false;
 	}
 
-	async function toggleRecordingDeletion(recording: Recording) {
+	async function toggleRecordingDeletion(recording: RecordingSummary) {
 		if (!recording.deleted) {
 			const confirmed = confirm(
 				`Delete recording ${recording.filename}?`,
@@ -187,11 +267,11 @@
 		}
 	}
 
-	function getRecordingBaseName(recording: Recording) {
+	function getRecordingBaseName(recording: RecordingSummary) {
 		return recording.filename.replace(/(_DELETED)?\.json$/, '');
 	}
 
-	async function renameRecording(recording: Recording) {
+	async function renameRecording(recording: RecordingSummary) {
 		const currentName = getRecordingBaseName(recording);
 		const input = prompt(
 			"Enter a new recording name (letters, numbers, '.', '_', '-')",
@@ -236,13 +316,110 @@
 		return `${mins}:${secs.toString().padStart(2, "0")}`;
 	}
 
-	function getRecordingDurationSeconds(recording: Recording | null): number {
+	function getRecordingDurationSeconds(recording: RecordingSummary | null): number {
 		if (!recording) {
 			return 0;
 		}
 
 		const diff = (recording.end_timestamp - recording.start_timestamp) / 1000;
 		return Number.isFinite(diff) && diff > 0 ? diff : 0;
+	}
+
+	function mergeDetail(
+		summary: RecordingSummary,
+		detail: RecordingDetail,
+	): RecordingDetail {
+		return {
+			...summary,
+			keystrokes: detail.keystrokes,
+			keystroke_count: detail.keystrokes.length,
+		};
+	}
+
+	function normalizeRecordingDetails(
+		recording: RecordingSummary,
+		raw: unknown,
+	): RecordingDetail {
+		const data =
+			typeof raw === "object" && raw !== null
+				? (raw as Record<string, unknown>)
+				: {};
+
+		const keystrokes = Array.isArray(data.keystrokes)
+			? data.keystrokes
+					.map(normalizeKeystroke)
+					.filter(
+						(event): event is RecordingKeystroke =>
+							event !== null,
+					)
+					.sort((a, b) => a.timestamp - b.timestamp)
+			: [];
+
+		return {
+			...recording,
+			start_timestamp:
+				coerceNumber(data.start_timestamp) ?? recording.start_timestamp,
+			end_timestamp:
+				coerceNumber(data.end_timestamp) ?? recording.end_timestamp,
+			keyboard_session_id:
+				coerceString(data.keyboard_session_id) ??
+				recording.keyboard_session_id,
+			control_session_id:
+				coerceString(data.control_session_id) ??
+				recording.control_session_id,
+			audio_file: coerceString(data.audio_file) ?? recording.audio_file,
+			keystrokes,
+			keystroke_count: keystrokes.length,
+		};
+	}
+
+	function normalizeKeystroke(value: unknown): RecordingKeystroke | null {
+		if (typeof value !== "object" || value === null) {
+			return null;
+		}
+
+		const entry = value as Record<string, unknown>;
+		const timestamp = coerceNumber(entry.timestamp ?? entry.time);
+		const key =
+			coerceString(entry.key ?? entry.code) ??
+			coerceString(
+				entry.text ??
+					entry.display ??
+					entry.value ??
+					entry.character ??
+					entry.char,
+			);
+
+		if (timestamp === undefined || !key) {
+			return null;
+		}
+
+		const eventType =
+			coerceString(entry.event_type ?? entry.type) === "keyup"
+				? "keyup"
+				: "keydown";
+
+		return {
+			timestamp,
+			key,
+			event_type: eventType,
+		};
+	}
+
+	function coerceString(value: unknown) {
+		if (typeof value !== "string") {
+			return undefined;
+		}
+		const trimmed = value.trim();
+		return trimmed.length > 0 ? trimmed : undefined;
+	}
+
+	function coerceNumber(value: unknown) {
+		if (value === null || value === undefined) {
+			return undefined;
+		}
+		const number = typeof value === "number" ? value : Number(value);
+		return Number.isFinite(number) ? number : undefined;
 	}
 </script>
 
@@ -339,7 +516,20 @@
 									1000,
 							)}
 						</p>
-						<p>Keystrokes: {selectedRecording.keystrokes.length}</p>
+						<p>
+							Keystrokes:
+							{selectedRecordingDetails
+								? selectedRecordingDetails.keystrokes.length
+								: selectedRecording?.keystroke_count ?? 0}
+						</p>
+						{#if selectedRecording &&
+							detailLoadingId === selectedRecording.recording_id}
+							<p class="detail-status">Loading keystrokes…</p>
+						{:else if selectedRecording &&
+							detailErrorRecordingId === selectedRecording.recording_id &&
+							detailLoadError}
+							<p class="detail-status error">{detailLoadError}</p>
+						{/if}
 					</div>
 
 					{#if selectedRecording.deleted}
@@ -381,11 +571,11 @@
 
 					<div class="state-panels">
 						<RecordingTextState
-							recording={selectedRecording}
+							recording={selectedRecordingDetails}
 							{currentTime}
 						/>
 						<KeyboardState
-							recording={selectedRecording}
+							recording={selectedRecordingDetails}
 							{currentTime}
 						/>
 					</div>
@@ -622,6 +812,16 @@
 			margin: 0.35rem 0;
 			font-size: 0.85rem;
 			color: #00aa00;
+		}
+
+		.detail-status {
+			margin: 0.35rem 0 0 0;
+			font-size: 0.8rem;
+			color: #00aa00;
+		}
+
+		.detail-status.error {
+			color: #ff6666;
 		}
 
 		.player-name {
