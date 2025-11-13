@@ -54,7 +54,8 @@ class TrainingHyperparams:
     weight_decay: float = 0.01
     warmup_steps: int = 500
     gradient_clip: float = 1.0
-    max_epochs: int = 10
+    max_epochs: int = 20
+    max_steps: int = 6000
     patience_evals: int = 3
     train_ratio: float = 0.9
     eval_interval_steps: int = 250
@@ -68,6 +69,22 @@ class TrainingHyperparams:
     max_saved_checkpoints: int = 4
 
     def __post_init__(self) -> None:
+        override_epochs = os.environ.get("KASCA_MAX_EPOCHS")
+        if override_epochs:
+            try:
+                value = int(override_epochs)
+                if value > 0:
+                    object.__setattr__(self, "max_epochs", value)
+            except ValueError:
+                pass
+        override_steps = os.environ.get("KASCA_MAX_STEPS")
+        if override_steps:
+            try:
+                value = int(override_steps)
+                if value > 0:
+                    object.__setattr__(self, "max_steps", value)
+            except ValueError:
+                pass
         object.__setattr__(
             self,
             "gradient_accumulation_steps",

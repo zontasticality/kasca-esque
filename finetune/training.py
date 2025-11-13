@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from functools import wraps
 import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Torch 2.6 switched torch.load(weights_only=True) as the default which breaks
+# Trainer's RNG/optimizer state restores. Force the legacy behavior so
+# checkpoint resumes keep working until upstream adopts the new API.
+os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
 
 import torch
 from peft import LoraConfig, TaskType, get_peft_model
@@ -175,6 +181,18 @@ class TrainerSpecCallback(TrainerCallback):
                 break
             shutil.rmtree(oldest, ignore_errors=True)
 
+    def on_log(self, args, state: TrainerState, control: TrainerControl, logs=None, **kwargs):
+        if not logs:
+            return control
+        step = int(state.global_step)
+        payload = {}
+        if "loss" in logs:
+            payload["train_loss"] = float(logs["loss"])
+        if "learning_rate" in logs:
+            payload["learning_rate"] = float(logs["learning_rate"])
+        if payload:
+            metrics.log_metrics_to_wandb(payload, step, "train", self.config)
+        return control
 
 def _load_manifest_rows(manifest_path: Path) -> List[dict]:
     rows: List[dict] = []
@@ -279,6 +297,7 @@ def train_eventcode_model(config: Optional[AppConfig] = None):
     """Entrypoint used by Modal to run the full training job."""
     app_config = config or get_config()
     hyper = app_config.hyperparams
+    metrics.ensure_wandb_available(app_config)
 
     train_manifest = app_config.manifests_base / "train.jsonl"
     eval_manifest = app_config.manifests_base / "eval.jsonl"
@@ -293,6 +312,17 @@ def train_eventcode_model(config: Optional[AppConfig] = None):
     _ensure_feature_caches(
         train_rows + eval_rows, app_config.tokens_base, tokenizer, hyper.base_model
     )
+
+    run_config = asdict(hyper)
+    run_config.update(
+        {
+            "train_examples": len(train_rows),
+            "eval_examples": len(eval_rows),
+            "manifest_schema": app_config.manifest_schema_version,
+            "tokenizer_dir": str(app_config.tokenizer_base),
+        }
+    )
+    metrics.start_run(app_config, run_config=run_config, tags=["kasca", "whisper"])
 
     train_dataset = CachedFeatureDataset(app_config.tokens_base, "train")
     eval_dataset = CachedFeatureDataset(app_config.tokens_base, "test")
@@ -313,6 +343,7 @@ def train_eventcode_model(config: Optional[AppConfig] = None):
         weight_decay=hyper.weight_decay,
         warmup_steps=hyper.warmup_steps,
         num_train_epochs=hyper.max_epochs,
+        max_steps=hyper.max_steps,
         logging_steps=50,
         evaluation_strategy="steps",
         save_strategy="steps",

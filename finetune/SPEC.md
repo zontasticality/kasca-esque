@@ -51,7 +51,7 @@ Directory contract inside the Modal volume:
 - Model: initialize `WhisperForConditionalGeneration` with encoder weights from `openai/whisper-small`, replace decoder with randomly initialized head sized to the tokenizer vocab, and disable language/task forcing.
 - Parameter-efficient tuning: apply LoRA rank 16, alpha 32 on the encoder self-attention projections while the decoder trains fully.
 - Optimization: `AdamW` (`lr=2e-4`, `betas=(0.9, 0.98)`, `weight_decay=0.01`), cosine schedule with 500-step warmup, gradient clipping at `1.0`, effective batch size 32 (accumulate gradients if per-device batch is smaller).
-- Training stops after 10 epochs OR 3 consecutive evaluations without `token_accuracy` improvement ≥ 0.005.
+- Training follows a max-steps schedule: run until `max_steps = 6000` optimizer steps (override via `KASCA_MAX_STEPS`) unless 3 consecutive evaluations fail to improve `token_accuracy` by ≥0.005. `KASCA_MAX_EPOCHS` remains available as a safety cap but shouldn’t gate progress in normal runs.
 - Checkpoint cadence: keep `latest`, `best`, and last three epoch checkpoints; write a checkpoint every 500 optimizer steps and after each evaluation that improves the metric.
 - Resume logic: before downloading a base model, check `checkpoints/latest` and restore model, optimizer, scheduler, and gradient scaler state if present.
 
@@ -64,7 +64,7 @@ Directory contract inside the Modal volume:
 ## Evaluation, Monitoring & Logging
 - Run evaluation on both train and test splits every 250 optimizer steps or every 15 minutes, whichever happens first.
 - Metrics: `sequence_accuracy` and `token_accuracy`, plus loss curves reported to stdout and wandb; store raw metric JSON next to checkpoints. `sequence_accuracy` is an all-or-nothing match over entire key timelines (akin to “sentence accuracy”) and guards against subtle DOWN/UP ordering regressions, while `token_accuracy` provides per-event granularity.
-- wandb logging: project `kasca-whisper`, job name derived from date + git commit, config contains hyperparameters and manifest hashes.
+- wandb logging is mandatory: project `kasca-whisper`, job name derived from date + git commit, config contains hyperparameters and manifest hashes. The run must fail fast if `WANDB_API_KEY` is absent and print the active wandb run name/URL so operators can click through from Modal logs.
 - Surface alerts: if `token_accuracy_test` drops by >5% relative to the previous evaluation, mark the run as `failed` and stop early to prevent regressing checkpoints.
 
 ## Deferred Monitoring & UX Enhancements
