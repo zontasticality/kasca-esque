@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"test": "node --import tsx/esm --test tests/keycodeTranscoder.test.ts",
 		"preview": "tsx server.ts",
 		"start": "tsx server.ts",
 		"migrate:keys": "tsx scripts/migrate-keycodes.ts",
