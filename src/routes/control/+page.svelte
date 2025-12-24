@@ -1,13 +1,15 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import ClientSelector from './ClientSelector.svelte';
-	import AudioRecorder from './AudioRecorder.svelte';
-	import AudioVisualizer from './AudioVisualizer.svelte';
+	import { onMount } from "svelte";
+	import ClientSelector from "./ClientSelector.svelte";
+	import AudioRecorder from "./AudioRecorder.svelte";
+	import AudioVisualizer from "./AudioVisualizer.svelte";
 
-	let sessionId = $state('');
+	let sessionId = $state("");
 	let connected = $state(false);
 	let ws: WebSocket | null = null;
-	let clients = $state<Array<{ session_id: string; connected_at: number }>>([]);
+	let clients = $state<Array<{ session_id: string; connected_at: number }>>(
+		[],
+	);
 	let selectedClientId = $state<string | null>(null);
 	let isRecording = $state(false);
 	let currentRecordingId = $state<string | null>(null);
@@ -24,14 +26,14 @@
 	});
 
 	function connectWebSocket() {
-		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 		const wsUrl = `${protocol}//${window.location.host}/ws/control`;
 
 		ws = new WebSocket(wsUrl);
 
 		ws.onopen = () => {
 			connected = true;
-			console.log('Connected to control endpoint');
+			console.log("Connected to control endpoint");
 		};
 
 		ws.onmessage = (event) => {
@@ -41,42 +43,45 @@
 
 		ws.onclose = () => {
 			connected = false;
-			console.log('Disconnected from control endpoint');
+			console.log("Disconnected from control endpoint");
 		};
 
 		ws.onerror = (error) => {
-			console.error('WebSocket error:', error);
+			console.error("WebSocket error:", error);
 		};
 	}
 
 	function handleMessage(message: any) {
-		console.log('Received message:', message);
+		console.log("Received message:", message);
 
 		switch (message.type) {
-			case 'session_assigned':
+			case "session_assigned":
 				sessionId = message.session_id;
 				break;
-			case 'client_list':
+			case "client_list":
 				clients = message.clients;
 				// If selected client is no longer in list, clear selection
-				if (selectedClientId && !clients.find((c) => c.session_id === selectedClientId)) {
+				if (
+					selectedClientId &&
+					!clients.find((c) => c.session_id === selectedClientId)
+				) {
 					selectedClientId = null;
 				}
 				break;
-			case 'recording_started':
-				console.log('Recording started:', message);
+			case "recording_started":
+				console.log("Recording started:", message);
 				// Notify AudioRecorder that server is ready to receive chunks
 				if (audioRecorderRef) {
 					audioRecorderRef.notifyServerReady();
 				}
 				break;
-			case 'recording_stopped':
-				console.log('Recording stopped:', message);
+			case "recording_stopped":
+				console.log("Recording stopped:", message);
 				isRecording = false;
 				currentRecordingId = null;
 				break;
-			case 'error':
-				console.error('Server error:', message.error, message.context);
+			case "error":
+				console.error("Server error:", message.error, message.context);
 				alert(`Error: ${message.error}`);
 				isRecording = false;
 				currentRecordingId = null;
@@ -90,7 +95,7 @@
 
 	function handleRecordingStart(recordingId: string) {
 		if (!selectedClientId || !ws || ws.readyState !== WebSocket.OPEN) {
-			alert('Please select a keyboard client first');
+			alert("Please select a keyboard client first");
 			return;
 		}
 
@@ -98,9 +103,9 @@
 		isRecording = true;
 
 		const message = {
-			type: 'start_recording',
+			type: "start_recording",
 			keyboard_session_id: selectedClientId,
-			recording_id: recordingId
+			recording_id: recordingId,
 		};
 
 		ws.send(JSON.stringify(message));
@@ -112,21 +117,30 @@
 		}
 
 		const message = {
-			type: 'stop_recording',
-			recording_id: currentRecordingId
+			type: "stop_recording",
+			recording_id: currentRecordingId,
 		};
 
 		ws.send(JSON.stringify(message));
 	}
 
 	function handleAudioChunk(chunk: ArrayBuffer) {
-		if (!ws || !currentRecordingId || !selectedClientId || ws.readyState !== WebSocket.OPEN) {
+		if (
+			!ws ||
+			!currentRecordingId ||
+			!selectedClientId ||
+			ws.readyState !== WebSocket.OPEN
+		) {
 			return;
 		}
 
 		// Create buffer with header (recording_id + keyboard_session_id) + audio data
-		const recordingIdBuffer = new TextEncoder().encode(currentRecordingId.padEnd(36, ' '));
-		const keyboardSessionIdBuffer = new TextEncoder().encode(selectedClientId.padEnd(36, ' '));
+		const recordingIdBuffer = new TextEncoder().encode(
+			currentRecordingId.padEnd(36, " "),
+		);
+		const keyboardSessionIdBuffer = new TextEncoder().encode(
+			selectedClientId.padEnd(36, " "),
+		);
 
 		const combined = new Uint8Array(72 + chunk.byteLength);
 		combined.set(recordingIdBuffer, 0);
@@ -141,7 +155,7 @@
 	<div class="header">
 		<h1>Control Panel</h1>
 		<div class="status">
-			<span class="status-indicator" class:connected={connected}></span>
+			<span class="status-indicator" class:connected></span>
 			{#if sessionId}
 				<span class="session-id">Session: {sessionId.slice(0, 8)}</span>
 			{/if}
@@ -150,7 +164,11 @@
 
 	<div class="main-content">
 		<div class="left-panel">
-			<ClientSelector {clients} {selectedClientId} onselect={handleClientSelect} />
+			<ClientSelector
+				{clients}
+				{selectedClientId}
+				onselect={handleClientSelect}
+			/>
 
 			<AudioRecorder
 				bind:this={audioRecorderRef}
@@ -177,15 +195,15 @@
 		height: 100vh;
 		display: flex;
 		flex-direction: column;
-		background: #0a0a0a;
-		color: #00ff00;
-		font-family: monospace;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-family: var(--font-mono);
 	}
 
 	.header {
 		padding: 1rem 2rem;
-		background: #000000;
-		border-bottom: 1px solid #003300;
+		background: var(--bg-primary);
+		border-bottom: 1px solid var(--border-primary);
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -195,7 +213,7 @@
 		margin: 0;
 		font-size: 1.5rem;
 		font-weight: normal;
-		color: #00ff00;
+		color: var(--text-primary);
 	}
 
 	.status {
@@ -212,12 +230,12 @@
 	}
 
 	.status-indicator.connected {
-		background: #00ff00;
-		box-shadow: 0 0 0.5rem #00ff00;
+		background: var(--text-primary);
+		box-shadow: 0 0 0.5rem var(--text-primary);
 	}
 
 	.session-id {
-		color: #00aa00;
+		color: var(--text-secondary);
 		font-size: 0.875rem;
 	}
 
@@ -244,13 +262,13 @@
 
 	.footer {
 		padding: 1rem 2rem;
-		background: #000000;
-		border-top: 1px solid #003300;
+		background: var(--bg-primary);
+		border-top: 1px solid var(--border-primary);
 		text-align: center;
 	}
 
 	.footer a {
-		color: #00ff00;
+		color: var(--text-primary);
 		text-decoration: none;
 	}
 

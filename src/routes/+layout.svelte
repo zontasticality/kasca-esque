@@ -1,5 +1,6 @@
 <script lang="ts">
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from "$lib/assets/favicon.svg";
+	import "$lib/styles/theme.css";
 
 	let { children } = $props();
 </script>
@@ -18,9 +19,9 @@
 	:global(body) {
 		margin: 0;
 		padding: 0;
-		background: #0a0a0a;
-		color: #00ff00;
-		font-family: 'Courier New', Courier, monospace;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-family: var(--font-mono);
 		overflow: hidden;
 	}
 
@@ -29,14 +30,14 @@
 	}
 
 	:global(body::-webkit-scrollbar-track) {
-		background: #000000;
+		background: var(--bg-primary);
 	}
 
 	:global(body::-webkit-scrollbar-thumb) {
-		background: #003300;
+		background: var(--border-primary);
 	}
 
 	:global(body::-webkit-scrollbar-thumb:hover) {
-		background: #00aa00;
+		background: var(--text-secondary);
 	}
 </style>

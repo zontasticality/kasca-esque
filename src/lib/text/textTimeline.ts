@@ -6,6 +6,7 @@ import {
 	isShiftCode,
 	keyLikeToCode
 } from '$lib/keyboard/keyMappings';
+import { findStateByTime } from '$lib/utils/binarySearch';
 
 // Old keystroke-only format (for backward compatibility)
 export interface KeystrokeEvent {
@@ -55,7 +56,7 @@ export class TextTimeline {
 		}
 
 		const relativeTime = Math.max(0, timestamp - this.baseTime);
-		const index = findStateIndex(this.states, relativeTime);
+		const index = findStateByTime(this.states, relativeTime);
 		if (index < 0) {
 			return EMPTY_SNAPSHOT;
 		}
@@ -280,10 +281,6 @@ function applyKey(text: string, cursor: number, key: string) {
 		return insertText(text, cursor, key);
 	}
 
-	if (key === ' ') {
-		return insertText(text, cursor, ' ');
-	}
-
 	if (key.toLowerCase() === 'space') {
 		return insertText(text, cursor, ' ');
 	}
@@ -340,21 +337,4 @@ function updateModifiersFromNormalized(modifiers: ModifierTracker, event: Normal
 	}
 }
 
-function findStateIndex(states: TimelineState[], timestamp: number) {
-	let low = 0;
-	let high = states.length - 1;
-	let result = -1;
 
-	while (low <= high) {
-		const mid = Math.floor((low + high) / 2);
-		const midTime = states[mid].time;
-		if (midTime <= timestamp) {
-			result = mid;
-			low = mid + 1;
-		} else {
-			high = mid - 1;
-		}
-	}
-
-	return result;
-}

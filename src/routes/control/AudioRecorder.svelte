@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import {
+		acquireMediaStream,
+		releaseMediaStream,
+	} from "$lib/utils/mediaStream";
 
 	interface Props {
 		isRecording: boolean;
@@ -26,15 +30,13 @@
 		requestMicrophonePermission();
 
 		return () => {
-			if (stream) {
-				stream.getTracks().forEach((track) => track.stop());
-			}
+			releaseMediaStream();
 		};
 	});
 
 	async function requestMicrophonePermission() {
 		try {
-			stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			stream = await acquireMediaStream();
 			hasPermission = true;
 			permissionError = null;
 		} catch (error) {
@@ -171,27 +173,27 @@
 
 <style>
 	.audio-recorder {
-		background: #000000;
-		border: 1px solid #003300;
-		padding: 1.5rem;
-		border-radius: 0.25rem;
+		background: var(--panel-bg);
+		border: var(--panel-border);
+		padding: var(--panel-padding);
+		border-radius: var(--panel-radius);
 	}
 
 	h2 {
 		margin: 0 0 1rem 0;
 		font-size: 1.125rem;
 		font-weight: normal;
-		color: #00ff00;
+		color: var(--text-primary);
 	}
 
 	.error {
-		color: #ff3333;
+		color: var(--error);
 		margin: 0 0 1rem 0;
 		font-size: 0.875rem;
 	}
 
 	.info {
-		color: #00aa00;
+		color: var(--text-secondary);
 		margin: 0;
 		font-size: 0.875rem;
 	}
@@ -199,11 +201,11 @@
 	.record-button {
 		width: 100%;
 		padding: 1rem;
-		background: #003300;
-		color: #00ff00;
-		border: 1px solid #00aa00;
-		border-radius: 0.25rem;
-		font-family: monospace;
+		background: var(--border-primary);
+		color: var(--text-primary);
+		border: 1px solid var(--text-secondary);
+		border-radius: var(--panel-radius);
+		font-family: var(--font-mono);
 		font-size: 1rem;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -211,13 +213,13 @@
 
 	.record-button:hover {
 		background: #004400;
-		border-color: #00ff00;
+		border-color: var(--text-primary);
 	}
 
 	.record-button.recording {
 		background: #440000;
-		color: #ff3333;
-		border-color: #ff3333;
+		color: var(--error);
+		border-color: var(--error);
 	}
 
 	.record-button.recording:hover {
@@ -226,11 +228,11 @@
 
 	.retry-button {
 		padding: 0.75rem 1.5rem;
-		background: #003300;
-		color: #00ff00;
-		border: 1px solid #00aa00;
-		border-radius: 0.25rem;
-		font-family: monospace;
+		background: var(--border-primary);
+		color: var(--text-primary);
+		border: 1px solid var(--text-secondary);
+		border-radius: var(--panel-radius);
+		font-family: var(--font-mono);
 		font-size: 0.875rem;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -238,7 +240,7 @@
 
 	.retry-button:hover {
 		background: #004400;
-		border-color: #00ff00;
+		border-color: var(--text-primary);
 	}
 
 	.recording-indicator {
@@ -247,16 +249,16 @@
 		gap: 0.75rem;
 		margin-top: 1rem;
 		padding: 0.75rem;
-		background: #0a0a0a;
-		border: 1px solid #ff3333;
-		border-radius: 0.25rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--error);
+		border-radius: var(--panel-radius);
 	}
 
 	.pulse {
 		width: 0.75rem;
 		height: 0.75rem;
 		border-radius: 50%;
-		background: #ff3333;
+		background: var(--error);
 		animation: pulse 1.5s infinite;
 	}
 
@@ -264,16 +266,16 @@
 		0%,
 		100% {
 			opacity: 1;
-			box-shadow: 0 0 0.5rem #ff3333;
+			box-shadow: 0 0 0.5rem var(--error);
 		}
 		50% {
 			opacity: 0.5;
-			box-shadow: 0 0 1rem #ff3333;
+			box-shadow: 0 0 1rem var(--error);
 		}
 	}
 
 	.text {
-		color: #ff3333;
+		color: var(--error);
 		font-size: 0.875rem;
 		font-weight: bold;
 	}

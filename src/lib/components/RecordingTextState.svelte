@@ -4,16 +4,9 @@
 		type KeystrokeEvent,
 		type TextSnapshot,
 	} from "$lib/text/textTimeline";
+	import type { RecordingLike } from "$lib/types";
 
 	const timelineCache = new Map<string, TextTimeline>();
-
-	type RecordingLike = {
-		start_timestamp: number;
-		end_timestamp: number;
-		keystrokes: KeystrokeEvent[];
-		allEvents?: unknown[]; // All raw events including mousedown, select, etc.
-		filename?: string;
-	};
 
 	const props = $props<{
 		recording: RecordingLike | null;
@@ -160,9 +153,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
-		background: #000000;
-		border: 1px solid #003300;
-		border-radius: 0.25rem;
+		background: var(--panel-bg);
+		border: var(--panel-border);
+		border-radius: var(--panel-radius);
 		padding: 1rem;
 	}
 
@@ -176,21 +169,21 @@
 	.text-state-header h3 {
 		margin: 0;
 		font-size: 1rem;
-		color: #00ff99;
+		color: var(--accent);
 	}
 
 	.text-state-meta {
 		font-size: 0.8rem;
-		color: #00aa00;
+		color: var(--text-secondary);
 	}
 
 	.text-state-body {
 		min-height: 6rem;
 		max-height: 16rem;
 		overflow-y: auto;
-		background: #050505;
-		border: 1px solid #002200;
-		border-radius: 0.25rem;
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border-secondary);
+		border-radius: var(--panel-radius);
 		padding: 0.75rem;
 	}
 
@@ -199,20 +192,20 @@
 		white-space: pre-wrap;
 		word-break: break-word;
 		font-size: 0.9rem;
-		color: #00ff00;
+		color: var(--text-primary);
 		min-height: 0;
 		line-height: 1.3;
 	}
 
 	pre.empty {
-		color: #006600;
+		color: var(--text-muted);
 	}
 
 	:global(.text-cursor) {
 		display: inline-block;
 		width: 2px;
 		height: 1.1em;
-		background: #00ff99;
+		background: var(--accent);
 		margin: 0 1px;
 		animation: cursor-blink 1s steps(2, start) infinite;
 		vertical-align: bottom;
@@ -238,6 +231,6 @@
 
 	.text-state-empty {
 		margin: 0;
-		color: #006600;
+		color: var(--text-muted);
 	}
 </style>

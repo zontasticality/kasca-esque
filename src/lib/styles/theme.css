@@ -1,0 +1,33 @@
+/* Theme variables for consistent styling across components */
+:root {
+	/* Background colors */
+	--bg-primary: #000000;
+	--bg-secondary: #0a0a0a;
+	--bg-tertiary: #050505;
+
+	/* Border colors */
+	--border-primary: #003300;
+	--border-secondary: #002200;
+
+	/* Text colors */
+	--text-primary: #00ff00;
+	--text-secondary: #00aa00;
+	--text-muted: #006600;
+
+	/* Accent colors */
+	--accent: #00ff99;
+	--accent-glow: rgba(0, 255, 153, 0.5);
+
+	/* Status colors */
+	--error: #ff3333;
+	--success: #00ff00;
+
+	/* Panel styling */
+	--panel-bg: #000000;
+	--panel-border: 1px solid var(--border-primary);
+	--panel-radius: 0.25rem;
+	--panel-padding: 1.5rem;
+
+	/* Typography */
+	--font-mono: monospace;
+}

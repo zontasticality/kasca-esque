@@ -42,11 +42,19 @@
 					/>
 					<span
 						class="radio-indicator"
-						style="background-color: {getColorFromSessionId(client.session_id)}"
+						style="background-color: {getColorFromSessionId(
+							client.session_id,
+						)}"
 					></span>
 					<span class="client-info">
-						<span class="client-id">{client.session_id.slice(0, 8)}</span>
-						<span class="client-time">Connected: {formatTimestamp(client.connected_at)}</span>
+						<span class="client-id"
+							>{client.session_id.slice(0, 8)}</span
+						>
+						<span class="client-time"
+							>Connected: {formatTimestamp(
+								client.connected_at,
+							)}</span
+						>
 					</span>
 				</label>
 			{/each}
@@ -56,21 +64,21 @@
 
 <style>
 	.client-selector {
-		background: #000000;
-		border: 1px solid #003300;
-		padding: 1.5rem;
-		border-radius: 0.25rem;
+		background: var(--panel-bg);
+		border: var(--panel-border);
+		padding: var(--panel-padding);
+		border-radius: var(--panel-radius);
 	}
 
 	h2 {
 		margin: 0 0 1rem 0;
 		font-size: 1.125rem;
 		font-weight: normal;
-		color: #00ff00;
+		color: var(--text-primary);
 	}
 
 	.no-clients {
-		color: #00aa00;
+		color: var(--text-secondary);
 		font-size: 0.875rem;
 		margin: 0;
 	}
@@ -86,19 +94,19 @@
 		align-items: center;
 		gap: 0.75rem;
 		padding: 0.75rem;
-		background: #0a0a0a;
-		border: 1px solid #003300;
-		border-radius: 0.25rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-primary);
+		border-radius: var(--panel-radius);
 		cursor: pointer;
 		transition: all 0.2s;
 	}
 
 	.client-item:hover {
 		background: #001100;
-		border-color: #00aa00;
+		border-color: var(--text-secondary);
 	}
 
-	.client-item input[type='radio'] {
+	.client-item input[type="radio"] {
 		display: none;
 	}
 
@@ -112,7 +120,7 @@
 
 	.client-item:has(input:checked) {
 		background: #001a00;
-		border-color: #00ff00;
+		border-color: var(--text-primary);
 	}
 
 	.client-item:has(input:checked) .radio-indicator {
@@ -126,12 +134,12 @@
 	}
 
 	.client-id {
-		color: #00ff00;
+		color: var(--text-primary);
 		font-size: 0.875rem;
 	}
 
 	.client-time {
-		color: #00aa00;
+		color: var(--text-secondary);
 		font-size: 0.75rem;
 	}
 </style>

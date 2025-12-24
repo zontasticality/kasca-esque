@@ -1,12 +1,15 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount } from "svelte";
+	import {
+		acquireMediaStream,
+		releaseMediaStream,
+	} from "$lib/utils/mediaStream";
 
 	let canvas: HTMLCanvasElement;
 	let audioContext: AudioContext | null = null;
 	let analyser: AnalyserNode | null = null;
 	let dataArray: Uint8Array<ArrayBuffer> | null = null;
 	let animationId: number | null = null;
-	let stream: MediaStream | null = null;
 
 	onMount(() => {
 		initAudio();
@@ -18,7 +21,7 @@
 
 	async function initAudio() {
 		try {
-			stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			const stream = await acquireMediaStream();
 			audioContext = new AudioContext();
 			analyser = audioContext.createAnalyser();
 			analyser.fftSize = 2048;
@@ -31,7 +34,7 @@
 
 			draw();
 		} catch (error) {
-			console.error('Failed to initialize audio:', error);
+			console.error("Failed to initialize audio:", error);
 		}
 	}
 
@@ -40,7 +43,7 @@
 
 		animationId = requestAnimationFrame(draw);
 
-		const ctx = canvas.getContext('2d');
+		const ctx = canvas.getContext("2d");
 		if (!ctx) return;
 
 		analyser.getByteTimeDomainData(dataArray);
@@ -49,12 +52,12 @@
 		const height = canvas.height;
 
 		// Clear canvas
-		ctx.fillStyle = '#0a0a0a';
+		ctx.fillStyle = "#0a0a0a";
 		ctx.fillRect(0, 0, width, height);
 
 		// Draw waveform
 		ctx.lineWidth = 2;
-		ctx.strokeStyle = '#00ff00';
+		ctx.strokeStyle = "#00ff00";
 		ctx.beginPath();
 
 		const sliceWidth = width / dataArray.length;
@@ -83,9 +86,7 @@
 		if (audioContext) {
 			audioContext.close();
 		}
-		if (stream) {
-			stream.getTracks().forEach((track) => track.stop());
-		}
+		releaseMediaStream();
 	}
 
 	function handleResize() {
@@ -107,10 +108,10 @@
 
 <style>
 	.audio-visualizer {
-		background: #000000;
-		border: 1px solid #003300;
-		padding: 1.5rem;
-		border-radius: 0.25rem;
+		background: var(--panel-bg);
+		border: var(--panel-border);
+		padding: var(--panel-padding);
+		border-radius: var(--panel-radius);
 		display: flex;
 		flex-direction: column;
 		height: 100%;
@@ -120,14 +121,14 @@
 		margin: 0 0 1rem 0;
 		font-size: 1.125rem;
 		font-weight: normal;
-		color: #00ff00;
+		color: var(--text-primary);
 	}
 
 	.canvas-container {
 		flex: 1;
-		background: #0a0a0a;
-		border: 1px solid #003300;
-		border-radius: 0.25rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-primary);
+		border-radius: var(--panel-radius);
 		overflow: hidden;
 	}
 
