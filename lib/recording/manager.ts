@@ -3,7 +3,7 @@ import path from 'path';
 import { existsSync } from 'fs';
 import { Blob as NodeBlob } from 'node:buffer';
 import fixWebmDuration from 'fix-webm-duration';
-import type { KeystrokeEvent } from '../websocket/types';
+import type { RecordingEvent } from '../websocket/types';
 
 export interface Recording {
 	recording_id: string;
@@ -11,11 +11,8 @@ export interface Recording {
 	end_timestamp?: number;
 	keyboard_session_id: string;
 	control_session_id: string;
-	keystrokes: Array<{
-		timestamp: number;
-		key: string;
-		event_type: 'keydown' | 'keyup';
-	}>;
+	events: RecordingEvent[];  // Unified event array
+	final_text?: string;
 	audio_file: string;
 }
 
@@ -56,7 +53,7 @@ export class RecordingManager {
 			start_timestamp: startTimestamp,
 			keyboard_session_id: keyboardSessionId,
 			control_session_id: controlSessionId,
-			keystrokes: [],
+			events: [],
 			audio_file: audioFilename
 		};
 
@@ -75,22 +72,33 @@ export class RecordingManager {
 			await fileHandle.write(chunk);
 		});
 
-		this.writeQueues.set(recordingId, next.catch(() => {}));
+		this.writeQueues.set(recordingId, next.catch(() => { }));
 		await next;
 	}
 
-	addKeystroke(recordingId: string, keystroke: KeystrokeEvent): void {
+	addEvent(recordingId: string, event: RecordingEvent): void {
 		const recording = this.recordings.get(recordingId);
 		if (!recording) {
-			console.warn(`Recording ${recordingId} not found for keystroke`);
+			console.warn(`Recording ${recordingId} not found for event`);
 			return;
 		}
 
-		recording.keystrokes.push({
-			timestamp: keystroke.timestamp,
-			key: keystroke.key,
-			event_type: keystroke.event_type
-		});
+		recording.events.push(event);
+	}
+
+	setFinalText(recordingId: string, finalText: string): void {
+		const recording = this.recordings.get(recordingId);
+		if (!recording) {
+			console.warn(`Recording ${recordingId} not found for final text`);
+			return;
+		}
+
+		recording.final_text = finalText;
+	}
+
+	getKeyboardSessionForRecording(recordingId: string): string | null {
+		const recording = this.recordings.get(recordingId);
+		return recording?.keyboard_session_id ?? null;
 	}
 
 	async stopRecording(recordingId: string, endTimestamp: number): Promise<string> {

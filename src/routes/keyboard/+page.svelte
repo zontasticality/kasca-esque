@@ -9,10 +9,15 @@
 	onMount(() => {
 		connectWebSocket();
 
+		// Listen for selection changes
+		const selectionHandler = () => handleSelectionChange();
+		document.addEventListener("selectionchange", selectionHandler);
+
 		return () => {
 			if (ws) {
 				ws.close();
 			}
+			document.removeEventListener("selectionchange", selectionHandler);
 		};
 	});
 
@@ -64,11 +69,13 @@
 
 		const physicalKey = event.code || event.key || "Unidentified";
 		const message = {
-			type: "keystroke",
+			type: "event",
 			session_id: sessionId,
-			timestamp: Date.now(),
-			key: physicalKey,
-			event_type: eventType,
+			event: {
+				type: eventType,
+				ts: Date.now(),
+				key: physicalKey,
+			},
 		};
 
 		ws.send(JSON.stringify(message));
@@ -87,33 +94,103 @@
 		event.preventDefault();
 	}
 
-	function sendMouseClick(
-		event: MouseEvent,
-		eventType: "mousedown" | "mouseup",
-	) {
+	// Selection tracking state
+	let selectionAnchor: number | null = null;
+	let lastSelectionDelta: number = 0;
+	let textareaRef: HTMLTextAreaElement | null = null;
+	let isMouseSelecting: boolean = false; // Only track selection during active mouse drag
+
+	function handleMouseDown(event: MouseEvent) {
 		if (!ws || !sessionId || ws.readyState !== WebSocket.OPEN) {
 			return;
 		}
 
-		const message = {
-			type: "mouseclick",
-			session_id: sessionId,
-			timestamp: Date.now(),
-			button: event.button as 0 | 1 | 2,
-			x: event.clientX,
-			y: event.clientY,
-			event_type: eventType,
-		};
+		isMouseSelecting = true;
 
-		ws.send(JSON.stringify(message));
-	}
+		// Get cursor position from textarea after a microtask (selection updates after mousedown)
+		requestAnimationFrame(() => {
+			if (textareaRef) {
+				selectionAnchor = textareaRef.selectionStart;
+				lastSelectionDelta = 0;
 
-	function handleMouseDown(event: MouseEvent) {
-		sendMouseClick(event, "mousedown");
+				const message = {
+					type: "event",
+					session_id: sessionId,
+					event: {
+						type: "mousedown",
+						ts: Date.now(),
+						pos: selectionAnchor,
+					},
+				};
+				ws?.send(JSON.stringify(message));
+			}
+		});
 	}
 
 	function handleMouseUp(event: MouseEvent) {
-		sendMouseClick(event, "mouseup");
+		if (!ws || !sessionId || ws.readyState !== WebSocket.OPEN) {
+			return;
+		}
+
+		isMouseSelecting = false;
+
+		// Record the final selection bounds for accurate replay
+		const selStart = textareaRef?.selectionStart ?? 0;
+		const selEnd = textareaRef?.selectionEnd ?? 0;
+
+		const message = {
+			type: "event",
+			session_id: sessionId,
+			event: {
+				type: "mouseup",
+				ts: Date.now(),
+				selectionStart: selStart,
+				selectionEnd: selEnd,
+			},
+		};
+
+		ws.send(JSON.stringify(message));
+
+		// Only reset anchor after sending
+		selectionAnchor = null;
+	}
+
+	function handleSelectionChange() {
+		// Only track selection changes during active mouse selection
+		if (
+			!ws ||
+			!sessionId ||
+			ws.readyState !== WebSocket.OPEN ||
+			!textareaRef ||
+			!isMouseSelecting || // Only during active mouse drag
+			selectionAnchor === null
+		) {
+			return;
+		}
+
+		// Calculate delta from anchor
+		const selStart = textareaRef.selectionStart;
+		const selEnd = textareaRef.selectionEnd;
+
+		// Determine the current "focus" (non-anchor end of selection)
+		const focus = selEnd !== selectionAnchor ? selEnd : selStart;
+		const newDelta = focus - selectionAnchor;
+
+		// Only send if delta changed
+		if (newDelta !== lastSelectionDelta) {
+			lastSelectionDelta = newDelta;
+
+			const message = {
+				type: "event",
+				session_id: sessionId,
+				event: {
+					type: "select",
+					ts: Date.now(),
+					delta: newDelta,
+				},
+			};
+			ws.send(JSON.stringify(message));
+		}
 	}
 
 	function handleContextMenu(event: MouseEvent) {
@@ -131,6 +208,7 @@
 	</div>
 
 	<textarea
+		bind:this={textareaRef}
 		bind:value={textareaValue}
 		onkeydown={handleKeydown}
 		onkeyup={handleKeyup}

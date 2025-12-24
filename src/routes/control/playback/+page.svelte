@@ -18,6 +18,7 @@
 
 	type RecordingDetail = RecordingSummary & {
 		keystrokes: RecordingKeystroke[];
+		allEvents?: unknown[]; // All raw events including mousedown, select, etc.
 	};
 
 	let recordings = $state<RecordingSummary[]>([]);
@@ -37,9 +38,8 @@
 		duration > 0
 			? duration
 			: selectedRecording
-			?
-				getRecordingDurationSeconds(selectedRecording)
-			: 0
+				? getRecordingDurationSeconds(selectedRecording)
+				: 0,
 	);
 
 	onMount(() => {
@@ -95,7 +95,8 @@
 					stopPlayback(true);
 				} else {
 					selectedRecordingDetails =
-						recordingDetailsById[selectedRecording.recording_id] ?? null;
+						recordingDetailsById[selectedRecording.recording_id] ??
+						null;
 				}
 			}
 		} catch (error) {
@@ -260,7 +261,10 @@
 			if (response.ok) {
 				await loadRecordings();
 			} else {
-				console.error("Failed to toggle recording deletion", await response.text());
+				console.error(
+					"Failed to toggle recording deletion",
+					await response.text(),
+				);
 			}
 		} catch (error) {
 			console.error("Error toggling recording deletion:", error);
@@ -268,7 +272,7 @@
 	}
 
 	function getRecordingBaseName(recording: RecordingSummary) {
-		return recording.filename.replace(/(_DELETED)?\.json$/, '');
+		return recording.filename.replace(/(_DELETED)?\.json$/, "");
 	}
 
 	async function renameRecording(recording: RecordingSummary) {
@@ -281,24 +285,30 @@
 			return;
 		}
 
-		const trimmed = input.trim().replace(/\.json$/i, '');
+		const trimmed = input.trim().replace(/\.json$/i, "");
 		if (!trimmed || trimmed === currentName) {
 			return;
 		}
 
 		try {
-			const response = await fetch(`/api/recordings/${recording.filename}`, {
-				method: "PATCH",
-				headers: {
-					"Content-Type": "application/json",
+			const response = await fetch(
+				`/api/recordings/${recording.filename}`,
+				{
+					method: "PATCH",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({ newBaseName: trimmed }),
 				},
-				body: JSON.stringify({ newBaseName: trimmed }),
-			});
+			);
 
 			if (response.ok) {
 				await loadRecordings();
 			} else {
-				console.error("Failed to rename recording", await response.text());
+				console.error(
+					"Failed to rename recording",
+					await response.text(),
+				);
 			}
 		} catch (error) {
 			console.error("Error renaming recording:", error);
@@ -316,12 +326,15 @@
 		return `${mins}:${secs.toString().padStart(2, "0")}`;
 	}
 
-	function getRecordingDurationSeconds(recording: RecordingSummary | null): number {
+	function getRecordingDurationSeconds(
+		recording: RecordingSummary | null,
+	): number {
 		if (!recording) {
 			return 0;
 		}
 
-		const diff = (recording.end_timestamp - recording.start_timestamp) / 1000;
+		const diff =
+			(recording.end_timestamp - recording.start_timestamp) / 1000;
 		return Number.isFinite(diff) && diff > 0 ? diff : 0;
 	}
 
@@ -345,15 +358,22 @@
 				? (raw as Record<string, unknown>)
 				: {};
 
-		const keystrokes = Array.isArray(data.keystrokes)
-			? data.keystrokes
-					.map(normalizeKeystroke)
-					.filter(
-						(event): event is RecordingKeystroke =>
-							event !== null,
-					)
-					.sort((a, b) => a.timestamp - b.timestamp)
-			: [];
+		// Support both old 'keystrokes' format and new 'events' format
+		let keystrokes: RecordingKeystroke[] = [];
+
+		if (Array.isArray(data.keystrokes)) {
+			// Old format: direct keystrokes array
+			keystrokes = data.keystrokes
+				.map(normalizeKeystroke)
+				.filter((event): event is RecordingKeystroke => event !== null)
+				.sort((a, b) => a.timestamp - b.timestamp);
+		} else if (Array.isArray(data.events)) {
+			// New format: events array with type field
+			keystrokes = data.events
+				.map(normalizeEventToKeystroke)
+				.filter((event): event is RecordingKeystroke => event !== null)
+				.sort((a, b) => a.timestamp - b.timestamp);
+		}
 
 		return {
 			...recording,
@@ -369,7 +389,38 @@
 				recording.control_session_id,
 			audio_file: coerceString(data.audio_file) ?? recording.audio_file,
 			keystrokes,
+			allEvents: Array.isArray(data.events) ? data.events : undefined,
 			keystroke_count: keystrokes.length,
+		};
+	}
+
+	// Convert new event format to keystroke format for playback
+	function normalizeEventToKeystroke(
+		value: unknown,
+	): RecordingKeystroke | null {
+		if (typeof value !== "object" || value === null) {
+			return null;
+		}
+
+		const entry = value as Record<string, unknown>;
+		const eventType = coerceString(entry.type);
+
+		// Only convert keydown/keyup events
+		if (eventType !== "keydown" && eventType !== "keyup") {
+			return null;
+		}
+
+		const timestamp = coerceNumber(entry.ts);
+		const key = coerceString(entry.key);
+
+		if (timestamp === undefined || !key) {
+			return null;
+		}
+
+		return {
+			timestamp,
+			key,
+			event_type: eventType,
 		};
 	}
 
@@ -437,67 +488,84 @@
 					<p class="no-recordings">No recordings found</p>
 				{:else}
 					{#each recordings as recording (recording.filename)}
-					<div
-						class="recording-item"
-						class:selected={selectedRecording?.filename ===
-							recording.filename}
-						class:deleted={recording.deleted}
-						onclick={() => selectRecording(recording)}
-						onkeydown={(event) => {
-							if (event.key === 'Enter' || event.key === ' ') {
-								event.preventDefault();
-								selectRecording(recording);
-							}
-						}}
-						role="button"
-						tabindex="0"
-					>
-					<div class="recording-info">
-						<span class="recording-name">{getRecordingBaseName(recording)}</span>
-						<div class="recording-meta">
-							<span>{formatTimestamp(recording.start_timestamp)}</span>
-							<span>•</span>
-							<span>
-								{formatDuration(
-									(recording.end_timestamp - recording.start_timestamp) /
-										1000,
-									)}
-							</span>
+						<div
+							class="recording-item"
+							class:selected={selectedRecording?.filename ===
+								recording.filename}
+							class:deleted={recording.deleted}
+							onclick={() => selectRecording(recording)}
+							onkeydown={(event) => {
+								if (
+									event.key === "Enter" ||
+									event.key === " "
+								) {
+									event.preventDefault();
+									selectRecording(recording);
+								}
+							}}
+							role="button"
+							tabindex="0"
+						>
+							<div class="recording-info">
+								<span class="recording-name"
+									>{getRecordingBaseName(recording)}</span
+								>
+								<div class="recording-meta">
+									<span
+										>{formatTimestamp(
+											recording.start_timestamp,
+										)}</span
+									>
+									<span>•</span>
+									<span>
+										{formatDuration(
+											(recording.end_timestamp -
+												recording.start_timestamp) /
+												1000,
+										)}
+									</span>
+								</div>
+								{#if recording.deleted}
+									<span class="recording-badge">Deleted</span>
+								{/if}
+							</div>
+							<div class="recording-actions">
+								<button
+									class="icon-button"
+									onclick={(e) => {
+										e.stopPropagation();
+										renameRecording(recording);
+									}}
+									type="button"
+									title="Rename recording"
+								>
+									<span aria-hidden="true">✏️</span>
+									<span class="sr-only">Rename recording</span
+									>
+								</button>
+								<button
+									class="icon-button"
+									class:restore={recording.deleted}
+									onclick={(e) => {
+										e.stopPropagation();
+										toggleRecordingDeletion(recording);
+									}}
+									type="button"
+									title={recording.deleted
+										? "Restore recording"
+										: "Delete recording"}
+								>
+									<span aria-hidden="true"
+										>{recording.deleted ? "↺" : "🗑"}</span
+									>
+									<span class="sr-only">
+										{recording.deleted
+											? "Restore recording"
+											: "Delete recording"}
+									</span>
+								</button>
+							</div>
 						</div>
-						{#if recording.deleted}
-							<span class="recording-badge">Deleted</span>
-						{/if}
-					</div>
-					<div class="recording-actions">
-						<button
-							class="icon-button"
-							onclick={(e) => {
-								e.stopPropagation();
-								renameRecording(recording);
-							}}
-							type="button"
-							title="Rename recording"
-						>
-							<span aria-hidden="true">✏️</span>
-							<span class="sr-only">Rename recording</span>
-						</button>
-						<button
-							class="icon-button"
-							class:restore={recording.deleted}
-							onclick={(e) => {
-								e.stopPropagation();
-								toggleRecordingDeletion(recording);
-							}}
-							type="button"
-							title={recording.deleted ? 'Restore recording' : 'Delete recording'}
-						>
-							<span aria-hidden="true">{recording.deleted ? "↺" : "🗑"}</span>
-							<span class="sr-only">
-								{recording.deleted ? "Restore recording" : "Delete recording"}
-							</span>
-						</button>
-					</div>
-				</div>
 					{/each}
 				{/if}
 			</div>
@@ -508,11 +576,15 @@
 				<div class="player">
 					<h2>Now Playing</h2>
 					<div class="player-info">
-						<p class="player-name">{getRecordingBaseName(selectedRecording)}</p>
+						<p class="player-name">
+							{getRecordingBaseName(selectedRecording)}
+						</p>
 						<p class="player-meta">
-							{formatTimestamp(selectedRecording.start_timestamp)} •
+							{formatTimestamp(selectedRecording.start_timestamp)}
+							•
 							{formatDuration(
-								(selectedRecording.end_timestamp - selectedRecording.start_timestamp) /
+								(selectedRecording.end_timestamp -
+									selectedRecording.start_timestamp) /
 									1000,
 							)}
 						</p>
@@ -520,21 +592,19 @@
 							Keystrokes:
 							{selectedRecordingDetails
 								? selectedRecordingDetails.keystrokes.length
-								: selectedRecording?.keystroke_count ?? 0}
+								: (selectedRecording?.keystroke_count ?? 0)}
 						</p>
-						{#if selectedRecording &&
-							detailLoadingId === selectedRecording.recording_id}
+						{#if selectedRecording && detailLoadingId === selectedRecording.recording_id}
 							<p class="detail-status">Loading keystrokes…</p>
-						{:else if selectedRecording &&
-							detailErrorRecordingId === selectedRecording.recording_id &&
-							detailLoadError}
+						{:else if selectedRecording && detailErrorRecordingId === selectedRecording.recording_id && detailLoadError}
 							<p class="detail-status error">{detailLoadError}</p>
 						{/if}
 					</div>
 
 					{#if selectedRecording.deleted}
 						<p class="deleted-warning">
-							This recording is soft-deleted. You can still play it, or restore it to mark it active again.
+							This recording is soft-deleted. You can still play
+							it, or restore it to mark it active again.
 						</p>
 					{/if}
 
@@ -546,10 +616,7 @@
 					></audio>
 
 					<div class="controls">
-						<button
-							class="play-button"
-							onclick={togglePlayback}
-						>
+						<button class="play-button" onclick={togglePlayback}>
 							{isPlaying ? "⏸ Pause" : "▶ Play"}
 						</button>
 						<input
@@ -746,7 +813,9 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		transition: border-color 0.2s, transform 0.2s;
+		transition:
+			border-color 0.2s,
+			transform 0.2s;
 	}
 
 	.icon-button.restore {
@@ -801,38 +870,38 @@
 		font-weight: normal;
 	}
 
-		.player-info {
-			background: #000000;
-			border: 1px solid #003300;
-			padding: 1rem;
-			border-radius: 0.25rem;
-		}
+	.player-info {
+		background: #000000;
+		border: 1px solid #003300;
+		padding: 1rem;
+		border-radius: 0.25rem;
+	}
 
-		.player-info p {
-			margin: 0.35rem 0;
-			font-size: 0.85rem;
-			color: #00aa00;
-		}
+	.player-info p {
+		margin: 0.35rem 0;
+		font-size: 0.85rem;
+		color: #00aa00;
+	}
 
-		.detail-status {
-			margin: 0.35rem 0 0 0;
-			font-size: 0.8rem;
-			color: #00aa00;
-		}
+	.detail-status {
+		margin: 0.35rem 0 0 0;
+		font-size: 0.8rem;
+		color: #00aa00;
+	}
 
-		.detail-status.error {
-			color: #ff6666;
-		}
+	.detail-status.error {
+		color: #ff6666;
+	}
 
-		.player-name {
-			font-size: 1.1rem;
-			color: #00ff99;
-		}
+	.player-name {
+		font-size: 1.1rem;
+		color: #00ff99;
+	}
 
-		.player-meta {
-			font-size: 0.8rem;
-			color: #00aa00;
-		}
+	.player-meta {
+		font-size: 0.8rem;
+		color: #00aa00;
+	}
 
 	.controls {
 		display: flex;
@@ -892,7 +961,6 @@
 		border: none;
 		cursor: pointer;
 	}
-
 
 	.time-display {
 		color: #00aa00;

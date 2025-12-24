@@ -1,12 +1,17 @@
 <script lang="ts">
-	import { TextTimeline, type KeystrokeEvent, type TextSnapshot } from "$lib/text/textTimeline";
+	import {
+		TextTimeline,
+		type KeystrokeEvent,
+		type TextSnapshot,
+	} from "$lib/text/textTimeline";
 
-const timelineCache = new Map<string, TextTimeline>();
+	const timelineCache = new Map<string, TextTimeline>();
 
 	type RecordingLike = {
 		start_timestamp: number;
 		end_timestamp: number;
 		keystrokes: KeystrokeEvent[];
+		allEvents?: unknown[]; // All raw events including mousedown, select, etc.
 		filename?: string;
 	};
 
@@ -20,16 +25,21 @@ const timelineCache = new Map<string, TextTimeline>();
 
 	$effect(() => {
 		const rec = props.recording;
-		const key = rec ? rec.filename ?? `${rec.start_timestamp}-${rec.end_timestamp}` : null;
+		const key = rec
+			? (rec.filename ?? `${rec.start_timestamp}-${rec.end_timestamp}`)
+			: null;
 
-		if (!rec || !rec.keystrokes?.length) {
+		// Use allEvents if available (includes mousedown, select, etc), otherwise fall back to keystrokes
+		const events = rec?.allEvents ?? rec?.keystrokes;
+
+		if (!rec || !events?.length) {
 			lastRecordingKey = null;
 			timeline = null;
 			return;
 		}
 
 		if (key !== lastRecordingKey) {
-			timeline = getOrCreateTimeline(rec);
+			timeline = getOrCreateTimeline(rec, events);
 			lastRecordingKey = key;
 		}
 	});
@@ -37,7 +47,12 @@ const timelineCache = new Map<string, TextTimeline>();
 	const emptySnapshot: TextSnapshot = { text: "", cursor: 0 };
 
 	const textSnapshot = $derived<TextSnapshot>(
-		resolveSnapshot(props.recording, timeline, props.currentTime, emptySnapshot)
+		resolveSnapshot(
+			props.recording,
+			timeline,
+			props.currentTime,
+			emptySnapshot,
+		),
 	);
 
 	const renderedHtml = $derived(buildRenderedHtml(textSnapshot));
@@ -46,7 +61,7 @@ const timelineCache = new Map<string, TextTimeline>();
 		rec: RecordingLike | null,
 		timeline: TextTimeline | null,
 		currentTime: number,
-		fallback: TextSnapshot
+		fallback: TextSnapshot,
 	): TextSnapshot {
 		if (!rec || !timeline) {
 			return fallback;
@@ -60,36 +75,65 @@ const timelineCache = new Map<string, TextTimeline>();
 	}
 
 	function buildRenderedHtml(snapshot: TextSnapshot) {
-		const before = formatSegment(snapshot.text.slice(0, snapshot.cursor));
-		const after = formatSegment(snapshot.text.slice(snapshot.cursor));
-		return `${before}<span class="text-cursor"></span>${after}`;
+		const text = snapshot.text;
+		const cursor = snapshot.cursor;
+		const selStart = snapshot.selectionStart ?? cursor;
+		const selEnd = snapshot.selectionEnd ?? cursor;
+
+		// Determine if there's an active selection
+		const hasSelection = selStart !== selEnd;
+
+		if (hasSelection) {
+			// Render with selection highlight
+			const beforeSel = formatSegment(
+				text.slice(0, Math.min(selStart, selEnd)),
+			);
+			const selected = formatSegment(
+				text.slice(
+					Math.min(selStart, selEnd),
+					Math.max(selStart, selEnd),
+				),
+			);
+			const afterSel = formatSegment(
+				text.slice(Math.max(selStart, selEnd)),
+			);
+
+			// Cursor is at the end of selection
+			return `${beforeSel}<span class="text-selection">${selected}</span><span class="text-cursor"></span>${afterSel}`;
+		} else {
+			// No selection, just show cursor
+			const before = formatSegment(text.slice(0, cursor));
+			const after = formatSegment(text.slice(cursor));
+			return `${before}<span class="text-cursor"></span>${after}`;
+		}
 	}
 
-	function getOrCreateTimeline(rec: RecordingLike) {
-		const cacheKey = rec.filename ?? `${rec.start_timestamp}-${rec.end_timestamp}`;
+	function getOrCreateTimeline(rec: RecordingLike, events: unknown[]) {
+		const cacheKey =
+			rec.filename ?? `${rec.start_timestamp}-${rec.end_timestamp}`;
 		const cached = timelineCache.get(cacheKey);
 		if (cached) {
 			return cached;
 		}
-		const timeline = new TextTimeline(rec.keystrokes);
+		// Pass events directly to TextTimeline - it handles both old and new formats
+		const timeline = new TextTimeline(events as any);
 		timelineCache.set(cacheKey, timeline);
 		return timeline;
 	}
 
 	function formatSegment(segment: string) {
-		return escapeHtml(segment).replace(/\t/g, '    ');
+		return escapeHtml(segment).replace(/\t/g, "    ");
 	}
 
 	function escapeHtml(value: string) {
 		return value
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;')
-			.replace(/"/g, '&quot;')
-			.replace(/'/g, '&#39;');
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;")
+			.replace(/"/g, "&quot;")
+			.replace(/'/g, "&#39;");
 	}
 </script>
-
 
 <div class="text-state-panel">
 	<div class="text-state-header">
@@ -172,6 +216,12 @@ const timelineCache = new Map<string, TextTimeline>();
 		margin: 0 1px;
 		animation: cursor-blink 1s steps(2, start) infinite;
 		vertical-align: bottom;
+	}
+
+	:global(.text-selection) {
+		background: rgba(0, 100, 255, 0.4);
+		color: #ffffff;
+		border-radius: 2px;
 	}
 
 	@keyframes cursor-blink {

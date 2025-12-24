@@ -1,11 +1,18 @@
 import type { WebSocket } from 'ws';
 
-export interface KeystrokeEvent {
-	type: 'keystroke';
+// Unified recording events - sent from keyboard client during recording
+export type RecordingEvent =
+	| { type: 'keydown'; ts: number; key: string }
+	| { type: 'keyup'; ts: number; key: string }
+	| { type: 'mousedown'; ts: number; pos: number }  // Sets selection anchor
+	| { type: 'mouseup'; ts: number; selectionStart?: number; selectionEnd?: number }  // Final selection bounds
+	| { type: 'select'; ts: number; delta: number };  // Selection offset from anchor
+
+// Wrapper for sending events over WebSocket (includes session_id)
+export interface RecordingEventMessage {
+	type: 'event';
 	session_id: string;
-	timestamp: number;
-	key: string;
-	event_type: 'keydown' | 'keyup';
+	event: RecordingEvent;
 }
 
 export interface SessionAssigned {
@@ -30,6 +37,17 @@ export interface StartRecording {
 export interface StopRecording {
 	type: 'stop_recording';
 	recording_id: string;
+}
+
+export interface RequestFinalText {
+	type: 'request_final_text';
+	recording_id: string;
+}
+
+export interface FinalTextResponse {
+	type: 'final_text_response';
+	recording_id: string;
+	final_text: string;
 }
 
 export interface RecordingStarted {
@@ -57,9 +75,10 @@ export type ServerMessage =
 	| ClientListUpdate
 	| RecordingStarted
 	| RecordingStopped
+	| RequestFinalText
 	| ErrorMessage;
 
-export type ClientMessage = KeystrokeEvent | StartRecording | StopRecording;
+export type ClientMessage = RecordingEventMessage | FinalTextResponse | StartRecording | StopRecording;
 
 export interface KeyboardClient {
 	session_id: string;
