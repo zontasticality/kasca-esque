@@ -18,6 +18,14 @@ export interface Recording {
 		key: string;
 		event_type: 'keydown' | 'keyup';
 	}>;
+	mouse_events: Array<{
+		timestamp: number;
+		button: 0 | 1 | 2;
+		x: number;
+		y: number;
+		event_type: 'mousedown' | 'mouseup';
+	}>;
+	final_text?: string;
 	audio_file: string;
 }
 
@@ -59,6 +67,7 @@ export class RecordingManager {
 			keyboard_session_id: keyboardSessionId,
 			control_session_id: controlSessionId,
 			keystrokes: [],
+			mouse_events: [],
 			audio_file: audioFilename
 		};
 
@@ -77,7 +86,7 @@ export class RecordingManager {
 			await fileHandle.write(chunk);
 		});
 
-		this.writeQueues.set(recordingId, next.catch(() => {}));
+		this.writeQueues.set(recordingId, next.catch(() => { }));
 		await next;
 	}
 
@@ -93,6 +102,38 @@ export class RecordingManager {
 			key: keystroke.key,
 			event_type: keystroke.event_type
 		});
+	}
+
+	addMouseEvent(recordingId: string, mouseEvent: {
+		timestamp: number;
+		button: 0 | 1 | 2;
+		x: number;
+		y: number;
+		event_type: 'mousedown' | 'mouseup';
+	}): void {
+		const recording = this.recordings.get(recordingId);
+		if (!recording) {
+			console.warn(`Recording ${recordingId} not found for mouse event`);
+			return;
+		}
+
+		recording.mouse_events.push({
+			timestamp: mouseEvent.timestamp,
+			button: mouseEvent.button,
+			x: mouseEvent.x,
+			y: mouseEvent.y,
+			event_type: mouseEvent.event_type
+		});
+	}
+
+	setFinalText(recordingId: string, finalText: string): void {
+		const recording = this.recordings.get(recordingId);
+		if (!recording) {
+			console.warn(`Recording ${recordingId} not found for final text`);
+			return;
+		}
+
+		recording.final_text = finalText;
 	}
 
 	async stopRecording(recordingId: string, endTimestamp: number): Promise<string> {
@@ -153,6 +194,11 @@ export class RecordingManager {
 
 	isRecording(recordingId: string): boolean {
 		return this.recordings.has(recordingId);
+	}
+
+	getKeyboardSessionForRecording(recordingId: string): string | null {
+		const recording = this.recordings.get(recordingId);
+		return recording?.keyboard_session_id ?? null;
 	}
 
 	private async fixWebMDuration(filePath: string): Promise<void> {

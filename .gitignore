@@ -27,5 +27,7 @@ finetune/recordings_cache
 finetune/manifests
 finetune/key_tokenizer
 
+recordings/
+
 **/__pycache__/
 *.log

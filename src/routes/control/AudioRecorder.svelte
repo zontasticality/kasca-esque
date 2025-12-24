@@ -16,11 +16,11 @@
 	let stream: MediaStream | null = null;
 	let hasPermission = $state(false);
 	let permissionError = $state<string | null>(null);
-	let chunkBuffer: ArrayBuffer[] = [];
-	let isServerReady = $state(false);
+
+	// Promise chain ensures chunks are sent in order
+	let sendQueue: Promise<void> = Promise.resolve();
 	let stopPending = false;
-	let recorderStopped = false;
-	let pendingChunkConversions = 0;
+	let pendingRecordingId: string | null = null;
 
 	onMount(() => {
 		requestMicrophonePermission();
@@ -44,24 +44,19 @@
 		}
 	}
 
+	// Called by parent when server confirms recording started
 	export function notifyServerReady() {
-		isServerReady = true;
-		flushChunkBuffer();
-		if (onserverready) {
-			onserverready();
-		}
-	}
-
-	function flushChunkBuffer() {
-		if (!isServerReady || chunkBuffer.length === 0) {
+		if (!pendingRecordingId || !mediaRecorder) {
+			console.warn("notifyServerReady called but no pending recording");
 			return;
 		}
 
-		while (chunkBuffer.length > 0) {
-			const chunk = chunkBuffer.shift();
-			if (chunk) {
-				onaudiochunk(chunk);
-			}
+		// NOW start the MediaRecorder - server is ready to receive
+		mediaRecorder.start(500); // Emit chunks every 500ms
+		console.log("MediaRecorder started after server confirmation");
+
+		if (onserverready) {
+			onserverready();
 		}
 	}
 
@@ -80,13 +75,11 @@
 		}
 
 		const recordingId = crypto.randomUUID();
+		pendingRecordingId = recordingId;
 
 		// Reset state
-		chunkBuffer = [];
-		isServerReady = false;
+		sendQueue = Promise.resolve();
 		stopPending = false;
-		recorderStopped = false;
-		pendingChunkConversions = 0;
 
 		// Create MediaRecorder with WebM format
 		try {
@@ -96,42 +89,36 @@
 		} catch (error) {
 			console.error("Failed to create MediaRecorder:", error);
 			alert("Failed to start recording");
+			pendingRecordingId = null;
 			return;
 		}
 
 		mediaRecorder.ondataavailable = (event) => {
 			if (event.data.size > 0) {
-				pendingChunkConversions++;
+				const blob = event.data;
 
-				event.data
-					.arrayBuffer()
-					.then((buffer) => {
-						if (isServerReady) {
-							onaudiochunk(buffer);
-						} else {
-							chunkBuffer.push(buffer);
-						}
+				// Chain each conversion to ensure in-order sending
+				sendQueue = sendQueue
+					.then(async () => {
+						const buffer = await blob.arrayBuffer();
+						onaudiochunk(buffer);
 					})
-					.finally(() => {
-						pendingChunkConversions = Math.max(
-							0,
-							pendingChunkConversions - 1,
-						);
-						checkStopCompletion();
+					.catch((error) => {
+						console.error("Error processing audio chunk:", error);
 					});
 			}
 		};
 
 		mediaRecorder.addEventListener("stop", () => {
-			recorderStopped = true;
-			checkStopCompletion();
+			// Wait for all pending chunks to be sent before signaling stop
+			sendQueue.then(() => {
+				finishStop();
+			});
 		});
 
-		// First notify parent to send start_recording message
+		// Notify parent to send start_recording message
+		// MediaRecorder will be started when notifyServerReady() is called
 		onstart(recordingId);
-
-		// Start MediaRecorder immediately - chunks will be buffered until server is ready
-		mediaRecorder.start(500); // Emit chunks every 500ms
 	}
 
 	function stopRecording() {
@@ -142,36 +129,13 @@
 		}
 
 		// If recorder was never started, still reset state and signal parent
-		chunkBuffer = [];
-		isServerReady = false;
-		stopPending = false;
-		recorderStopped = false;
-		pendingChunkConversions = 0;
-		onstop();
-	}
-
-	function checkStopCompletion() {
-		if (stopPending && recorderStopped && pendingChunkConversions === 0) {
-			finishStop();
-		}
+		finishStop();
 	}
 
 	function finishStop() {
-		if (chunkBuffer.length > 0) {
-			if (isServerReady) {
-				flushChunkBuffer();
-			} else {
-				console.warn(
-					"Dropping buffered chunks because server never acknowledged recording start",
-				);
-				chunkBuffer = [];
-			}
-		}
-
-		isServerReady = false;
+		sendQueue = Promise.resolve();
 		stopPending = false;
-		recorderStopped = false;
-		pendingChunkConversions = 0;
+		pendingRecordingId = null;
 		mediaRecorder = null;
 		onstop();
 	}

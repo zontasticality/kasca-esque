@@ -8,6 +8,16 @@ export interface KeystrokeEvent {
 	event_type: 'keydown' | 'keyup';
 }
 
+export interface MouseClickEvent {
+	type: 'mouseclick';
+	session_id: string;
+	timestamp: number;
+	button: 0 | 1 | 2; // left, middle, right
+	x: number;
+	y: number;
+	event_type: 'mousedown' | 'mouseup';
+}
+
 export interface SessionAssigned {
 	type: 'session_assigned';
 	session_id: string;
@@ -30,6 +40,18 @@ export interface StartRecording {
 export interface StopRecording {
 	type: 'stop_recording';
 	recording_id: string;
+	final_text?: string;
+}
+
+export interface RequestFinalText {
+	type: 'request_final_text';
+	recording_id: string;
+}
+
+export interface FinalTextResponse {
+	type: 'final_text_response';
+	recording_id: string;
+	final_text: string;
 }
 
 export interface RecordingStarted {
@@ -57,9 +79,10 @@ export type ServerMessage =
 	| ClientListUpdate
 	| RecordingStarted
 	| RecordingStopped
+	| RequestFinalText
 	| ErrorMessage;
 
-export type ClientMessage = KeystrokeEvent | StartRecording | StopRecording;
+export type ClientMessage = KeystrokeEvent | MouseClickEvent | StartRecording | StopRecording | FinalTextResponse;
 
 export interface KeyboardClient {
 	session_id: string;

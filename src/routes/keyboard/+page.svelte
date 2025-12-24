@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount } from "svelte";
 
-	let sessionId = $state('');
+	let sessionId = $state("");
 	let connected = $state(false);
 	let ws: WebSocket | null = null;
-	let textareaValue = $state('');
+	let textareaValue = $state("");
 
 	onMount(() => {
 		connectWebSocket();
@@ -17,57 +17,69 @@
 	});
 
 	function connectWebSocket() {
-		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 		const wsUrl = `${protocol}//${window.location.host}/ws/keyboard`;
 
 		ws = new WebSocket(wsUrl);
 
 		ws.onopen = () => {
 			connected = true;
-			console.log('Connected to keyboard endpoint');
+			console.log("Connected to keyboard endpoint");
 		};
 
 		ws.onmessage = (event) => {
 			const message = JSON.parse(event.data);
-			if (message.type === 'session_assigned') {
+			if (message.type === "session_assigned") {
 				sessionId = message.session_id;
-				console.log('Session ID:', sessionId);
+				console.log("Session ID:", sessionId);
+			} else if (message.type === "request_final_text") {
+				// Respond with current text content
+				const response = {
+					type: "final_text_response",
+					recording_id: message.recording_id,
+					final_text: textareaValue,
+				};
+				ws?.send(JSON.stringify(response));
+				console.log("Sent final text response");
 			}
 		};
 
 		ws.onclose = () => {
 			connected = false;
-			console.log('Disconnected from keyboard endpoint');
+			console.log("Disconnected from keyboard endpoint");
 		};
 
 		ws.onerror = (error) => {
-			console.error('WebSocket error:', error);
+			console.error("WebSocket error:", error);
 		};
 	}
 
-	function sendKeystroke(event: KeyboardEvent, eventType: 'keydown' | 'keyup') {
+	function sendKeystroke(
+		event: KeyboardEvent,
+		eventType: "keydown" | "keyup",
+	) {
 		if (!ws || !sessionId || ws.readyState !== WebSocket.OPEN) {
 			return;
 		}
 
-		const physicalKey = event.code || event.key || 'Unidentified';
+		const physicalKey = event.code || event.key || "Unidentified";
 		const message = {
-			type: 'keystroke',
+			type: "keystroke",
 			session_id: sessionId,
 			timestamp: Date.now(),
 			key: physicalKey,
-			event_type: eventType
+			event_type: eventType,
 		};
 
 		ws.send(JSON.stringify(message));
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		sendKeystroke(event, 'keydown');
+		sendKeystroke(event, "keydown");
 	}
 
 	function handleKeyup(event: KeyboardEvent) {
-		sendKeystroke(event, 'keyup');
+		sendKeystroke(event, "keyup");
 	}
 
 	function handlePaste(event: ClipboardEvent) {
@@ -75,9 +87,33 @@
 		event.preventDefault();
 	}
 
+	function sendMouseClick(
+		event: MouseEvent,
+		eventType: "mousedown" | "mouseup",
+	) {
+		if (!ws || !sessionId || ws.readyState !== WebSocket.OPEN) {
+			return;
+		}
+
+		const message = {
+			type: "mouseclick",
+			session_id: sessionId,
+			timestamp: Date.now(),
+			button: event.button as 0 | 1 | 2,
+			x: event.clientX,
+			y: event.clientY,
+			event_type: eventType,
+		};
+
+		ws.send(JSON.stringify(message));
+	}
+
 	function handleMouseDown(event: MouseEvent) {
-		// Block text selection but allow focus
-		// Don't prevent default entirely
+		sendMouseClick(event, "mousedown");
+	}
+
+	function handleMouseUp(event: MouseEvent) {
+		sendMouseClick(event, "mouseup");
 	}
 
 	function handleContextMenu(event: MouseEvent) {
@@ -88,7 +124,7 @@
 
 <div class="keyboard-container">
 	<div class="status-bar">
-		<span class="status-indicator" class:connected={connected}></span>
+		<span class="status-indicator" class:connected></span>
 		{#if sessionId}
 			<span class="session-id">Session: {sessionId.slice(0, 8)}</span>
 		{/if}
@@ -100,6 +136,7 @@
 		onkeyup={handleKeyup}
 		onpaste={handlePaste}
 		onmousedown={handleMouseDown}
+		onmouseup={handleMouseUp}
 		oncontextmenu={handleContextMenu}
 		placeholder="Start typing..."
 		autocomplete="off"

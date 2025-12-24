@@ -27,8 +27,33 @@ Sent on every keydown/keyup event.
 - `type`: Always `"keystroke"`
 - `session_id`: Unique session ID assigned on connection
 - `timestamp`: Unix timestamp in milliseconds
-- `key`: Key value from KeyboardEvent.key
+- `key`: Key value from KeyboardEvent.code (physical key)
 - `event_type`: Either `"keydown"` or `"keyup"`
+
+### Client → Server: Mouse Click Event
+
+Sent on every mousedown/mouseup event in the typing area.
+
+```json
+{
+  "type": "mouseclick",
+  "session_id": "uuid-v4-string",
+  "timestamp": 1234567890123,
+  "button": 0,
+  "x": 150,
+  "y": 200,
+  "event_type": "mousedown"
+}
+```
+
+**Fields**:
+- `type`: Always `"mouseclick"`
+- `session_id`: Unique session ID assigned on connection
+- `timestamp`: Unix timestamp in milliseconds
+- `button`: Mouse button (0=left, 1=middle, 2=right)
+- `x`: X coordinate (clientX)
+- `y`: Y coordinate (clientY)
+- `event_type`: Either `"mousedown"` or `"mouseup"`
 
 ### Server → Client: Session Assignment
 
@@ -44,6 +69,38 @@ Sent immediately after WebSocket connection is established.
 **Fields**:
 - `type`: Always `"session_assigned"`
 - `session_id`: Unique session ID for this client
+
+### Server → Client: Request Final Text
+
+Sent when a recording is stopping and the server needs the current text content.
+
+```json
+{
+  "type": "request_final_text",
+  "recording_id": "uuid-v4-string"
+}
+```
+
+**Fields**:
+- `type`: Always `"request_final_text"`
+- `recording_id`: ID of the recording being stopped
+
+### Client → Server: Final Text Response
+
+Sent in response to `request_final_text` with the current textarea content.
+
+```json
+{
+  "type": "final_text_response",
+  "recording_id": "uuid-v4-string",
+  "final_text": "The text that was typed..."
+}
+```
+
+**Fields**:
+- `type`: Always `"final_text_response"`
+- `recording_id`: ID of the recording (from request)
+- `final_text`: Current content of the keyboard textarea
 
 ---
 

@@ -5,6 +5,8 @@ import type {
 	KeyboardClient,
 	ControlClient,
 	KeystrokeEvent,
+	MouseClickEvent,
+	FinalTextResponse,
 	StartRecording,
 	StopRecording,
 	ServerMessage,
@@ -16,6 +18,7 @@ export class WebSocketManager {
 	private keyboardClients: Map<string, KeyboardClient> = new Map();
 	private controlClients: Map<string, ControlClient> = new Map();
 	private recordingManager: RecordingManager;
+	private pendingFinalTextRequests: Map<string, (text: string) => void> = new Map();
 
 	constructor() {
 		this.recordingManager = new RecordingManager();
@@ -43,8 +46,14 @@ export class WebSocketManager {
 		// Handle messages
 		ws.on('message', (data: Buffer) => {
 			try {
-				const message = JSON.parse(data.toString()) as KeystrokeEvent;
-				this.handleKeystrokeEvent(sessionId, message);
+				const message = JSON.parse(data.toString()) as KeystrokeEvent | MouseClickEvent | FinalTextResponse;
+				if (message.type === 'keystroke') {
+					this.handleKeystrokeEvent(sessionId, message);
+				} else if (message.type === 'mouseclick') {
+					this.handleMouseEvent(sessionId, message);
+				} else if (message.type === 'final_text_response') {
+					this.handleFinalTextResponse(message);
+				}
 			} catch (error) {
 				console.error('Error parsing keyboard message:', error);
 			}
@@ -120,6 +129,56 @@ export class WebSocketManager {
 		}
 	}
 
+	private handleMouseEvent(sessionId: string, event: MouseClickEvent): void {
+		// Find if this keyboard is being recorded
+		const recordingId = this.recordingManager.getRecordingByKeyboardSession(sessionId);
+		if (recordingId) {
+			this.recordingManager.addMouseEvent(recordingId, {
+				timestamp: event.timestamp,
+				button: event.button,
+				x: event.x,
+				y: event.y,
+				event_type: event.event_type
+			});
+		}
+	}
+
+	private handleFinalTextResponse(response: FinalTextResponse): void {
+		const callback = this.pendingFinalTextRequests.get(response.recording_id);
+		if (callback) {
+			callback(response.final_text);
+			this.pendingFinalTextRequests.delete(response.recording_id);
+		}
+	}
+
+	private requestFinalTextFromKeyboard(recordingId: string, keyboardSessionId: string): Promise<string | null> {
+		return new Promise((resolve) => {
+			const keyboardClient = this.keyboardClients.get(keyboardSessionId);
+			if (!keyboardClient || keyboardClient.ws.readyState !== WebSocket.OPEN) {
+				resolve(null);
+				return;
+			}
+
+			// Set up timeout - if no response in 2 seconds, proceed without text
+			const timeout = setTimeout(() => {
+				this.pendingFinalTextRequests.delete(recordingId);
+				resolve(null);
+			}, 2000);
+
+			// Store callback for when response arrives
+			this.pendingFinalTextRequests.set(recordingId, (text: string) => {
+				clearTimeout(timeout);
+				resolve(text);
+			});
+
+			// Send request to keyboard client
+			this.sendMessage(keyboardClient.ws, {
+				type: 'request_final_text',
+				recording_id: recordingId
+			});
+		});
+	}
+
 	private handleControlMessage(
 		sessionId: string,
 		message: StartRecording | StopRecording
@@ -185,6 +244,12 @@ export class WebSocketManager {
 		message: StopRecording
 	): Promise<void> {
 		const endTimestamp = Date.now();
+
+		// Save final text if provided
+		if (message.final_text !== undefined) {
+			this.recordingManager.setFinalText(message.recording_id, message.final_text);
+		}
+
 		await this.stopRecordingInternal(message.recording_id, endTimestamp, controlSessionId);
 	}
 
@@ -195,6 +260,15 @@ export class WebSocketManager {
 	): Promise<void> {
 		if (!this.recordingManager.isRecording(recordingId)) {
 			return;
+		}
+
+		// Request final text from keyboard client before stopping
+		const keyboardSessionId = this.recordingManager.getKeyboardSessionForRecording(recordingId);
+		if (keyboardSessionId) {
+			const finalText = await this.requestFinalTextFromKeyboard(recordingId, keyboardSessionId);
+			if (finalText !== null) {
+				this.recordingManager.setFinalText(recordingId, finalText);
+			}
 		}
 
 		try {
